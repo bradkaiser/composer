@@ -1,0 +1,31 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>Untitled Document</title>
+
+<script src="js/jquery-1.10.2.min.js"></script>
+<script src="js/vexflow-min.js"></script>
+
+
+</head>
+<body>
+
+<div style="margin:0 auto">
+  <canvas id="canvas" style="margin:0 auto;" width="700" height="100"></canvas>
+  </div>
+
+
+<script>
+var canvas = document.getElementById("canvas");
+  var renderer = new Vex.Flow.Renderer(canvas,
+    Vex.Flow.Renderer.Backends.CANVAS);
+
+  var ctx = renderer.getContext();
+  var stave = new Vex.Flow.Stave(10, 0, 500);
+  stave.addClef("treble").setContext(ctx).draw();
+</script>
+
+
+</body>
+</html>
