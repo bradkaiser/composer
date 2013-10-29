@@ -15,31 +15,44 @@
 </head>
 <body>
 
-<div style=" margin:0 auto; width:60%; height:80%; margin-top:80px;">
-  <canvas id="canvas" width="700" height="900"></canvas>
+<div style=" margin:0 auto; width:70%; height:80%; margin-top:80px;">
+  <canvas id="canvas" width="820" height="900"></canvas>
 </div>
 
 <script>
 var canvas = document.getElementById("canvas");
   var renderer = new Vex.Flow.Renderer(canvas,
     Vex.Flow.Renderer.Backends.CANVAS);
-
   var ctx = renderer.getContext();
-  var stave = new Vex.Flow.Stave(10, 0, 800);
-  stave.addClef("treble").setContext(ctx).draw();
+  
+  var stave3 = new Vex.Flow.Stave(410, 0, 200);
+  stave3.setContext(ctx).draw();
+  var stave4 = new Vex.Flow.Stave(610, 0, 200);
+  stave4.setContext(ctx).draw();
+
 
 	var note1 = new Note("c","4","q");
 	var note2 = new Note("d","4","q");
 	var note3 = new Note("b","4","qr");
 	var note4 = new Note("d","5","q");
 	
-	var bar = new Bar()
+	var bar = new Bar(0,0,810);
+	bar.addClef();
 	bar.addNote(note1.note); bar.addNote(note2.note); bar.addNote(note3.note); bar.addNote(note4.note);
 	bar.finalizeVoice();
   // Format and justify the notes to 500 pixels
   var formatter = new Vex.Flow.Formatter().
-    joinVoices([bar.bar]).format([bar.bar], 500);
-	bar.draw(ctx,stave);
+    joinVoices([bar.bar]).format([bar.bar], 200);
+	bar.draw(ctx);
+	
+	var bar2 = new Bar(210,0,200);
+	bar2.addNote(note1.note); bar2.addNote(note2.note); bar2.addNote(note3.note); bar2.addNote(note4.note);
+	bar2.finalizeVoice();
+  // Format and justify the notes to 500 pixels
+  var formatter = new Vex.Flow.Formatter().
+    joinVoices([bar2.bar]).format([bar2.bar], 200);
+	bar2.draw(ctx);
+		
 	
 </script>
 

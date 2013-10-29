@@ -1,4 +1,4 @@
-//Use this to create a StaveNote. Will be added to a bar (which is a Vex Voice)
+//Use this to create a StaveNote. Will be added to a bar (which is a Stave )
 
 function Note(key, octave, duration){
 	this.key = key + "/" + octave;
@@ -6,6 +6,7 @@ function Note(key, octave, duration){
 	this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: this.duration });
 	
 }
+
 
 Note.prototype.setKey = function(key, octave){
 	this.key = key + "/" + octave;
