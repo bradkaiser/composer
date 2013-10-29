@@ -29,40 +29,18 @@ var canvas = document.getElementById("canvas");
   stave.addClef("treble").setContext(ctx).draw();
 
 	var note1 = new Note("c","4","q");
-	note1.setKey("d","5");
-
-  // Create the notes
-  var notes = [
-    // A quarter-note C.
-    note1.note,
-
-    // A quarter-note D.
-    new Vex.Flow.StaveNote({ keys: ["d/4"], duration: "q" }),
-
-    // A quarter-note rest. Note that the key (b/4) specifies the vertical
-    // position of the rest.
-    new Vex.Flow.StaveNote({ keys: ["b/4"], duration: "qr" }),
-
-    // A C-Major chord.
-    new Vex.Flow.StaveNote({ keys: ["c/4", "e/4", "g/4"], duration: "q" })
-  ];
-
-  // Create a voice in 4/4
-  var voice = new Vex.Flow.Voice({
-    num_beats: 4,
-    beat_value: 4,
-    resolution: Vex.Flow.RESOLUTION
-  });
-
-  // Add notes to voice
-  voice.addTickables(notes);
-
+	var note2 = new Note("d","4","q");
+	var note3 = new Note("b","4","qr");
+	var note4 = new Note("d","5","q");
+	
+	var bar = new Bar()
+	bar.addNote(note1.note); bar.addNote(note2.note); bar.addNote(note3.note); bar.addNote(note4.note);
+	bar.finalizeVoice();
   // Format and justify the notes to 500 pixels
   var formatter = new Vex.Flow.Formatter().
-    joinVoices([voice]).format([voice], 500);
-
-  // Render voice
-  voice.draw(ctx, stave);
+    joinVoices([bar.bar]).format([bar.bar], 500);
+	bar.draw(ctx,stave);
+	
 </script>
 
 
