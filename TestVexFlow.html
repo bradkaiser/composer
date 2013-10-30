@@ -4,6 +4,7 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <title>Musical Fun</title>
 
+<script src="http://d3lp1msu2r81bx.cloudfront.net/kjs/js/lib/kinetic-v4.7.2.min.js"></script>
 <script src="js/jquery-1.10.2.min.js"></script>
 <script src="js/vexflow-min.js"></script>
 <script src="js/note.js"></script>
@@ -43,7 +44,7 @@ var canvas = document.getElementById("canvas");
   // Format and justify the notes to 500 pixels
   var formatter = new Vex.Flow.Formatter().
     joinVoices([bar.bar]).format([bar.bar], 200);
-	bar.draw(ctx);
+	bar.draw(ctx, true);
 	
 	var bar2 = new Bar(210,0,200);
 	bar2.addNote(note1.note); bar2.addNote(note2.note); bar2.addNote(note3.note); bar2.addNote(note4.note);
@@ -51,7 +52,9 @@ var canvas = document.getElementById("canvas");
   // Format and justify the notes to 500 pixels
   var formatter = new Vex.Flow.Formatter().
     joinVoices([bar2.bar]).format([bar2.bar], 200);
-	bar2.draw(ctx);
+	bar2.draw(ctx, true);
+	
+	
 		
 	
 </script>

@@ -9,6 +9,7 @@ function Bar(x, y, width){
 		resolution: Vex.Flow.RESOLUTION
   	});	
 	this.stave = new Vex.Flow.Stave(x, y, width);
+	this.fullBar = 4;
 }
 
 Bar.prototype.addNote = function(note){
