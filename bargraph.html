@@ -1,0 +1,105 @@
+<html>
+<head>
+<title>Bar Graphs</title>
+<style>
+.chart rect {
+    stroke: white;
+    fill: steelblue;
+}
+
+#graph-holder { 
+    height: 400px;
+}
+
+</style>
+</head>
+
+<body>
+    <h1>Bar Graphs</h1>
+
+    <p>we are going to draw a bar graph with d3</p>
+
+    <div id="graph-holder"></div> 
+
+</body>
+
+<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+
+var chart = d3.select('#graph-holder').append("svg")
+    .attr("class","chart")
+    .attr("width", "100%")
+    .attr("height", "100%");
+
+var update = function(data) { 
+
+    var w = parseFloat(chart.style("width")) / data.length;
+    var maxHeight = parseFloat(chart.style("height")) / 2;
+    var absMax = Math.max(-d3.min(data), d3.max(data));
+
+    var y = d3.scale.linear()
+        .domain([-absMax, absMax])
+        .range([0,maxHeight]);
+
+    var bars = chart.selectAll("rect").data(data);
+
+    bars.enter().append("rect");
+
+    bars.attr("x", function(d,i) { return w * i })
+        .attr("width", w)
+        .attr("y", function(d) { return maxHeight - y(Math.max(0,d)); })
+        .attr("height", function(d) { return Math.abs(y(d) - y(0)); });
+
+    bars.exit().remove();
+}
+
+if (!navigator.getUserMedia) {
+    navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+}
+
+if (navigator.getUserMedia) {
+    navigator.getUserMedia({audio: true}, success, function(e) { alert('boo'); });
+} else {
+    alert('not supported');
+}
+
+function success(e) {
+    var audioContext = window.AudioContext || window.webkitAudioContext;
+    var context = new audioContext();
+
+    var volume = context.createGain();
+
+    var audioInput = context.createMediaStreamSource(e);
+
+    var bufferSize = 2048;
+    recorder = context.createJavaScriptNode(bufferSize,2,2);
+
+    var analyser = context.createAnalyser();
+    analyser.smoothingTimeConstant = 0.3;
+    analyser.fftSize = 1024; 
+
+    recorder.onaudioprocess = function() {
+//        console.log(e.inputBuffer.getChannelData(0));
+      //  update(e.inputBuffer.getChannelData(0));
+
+
+         var array = new Uint8Array(analyser.frequencyBinCount);
+         analyser.getByteFrequencyData(array);
+        update(array);
+    }
+
+
+    audioInput.connect(volume);
+    volume.connect(analyser);
+    analyser.connect(recorder);
+    recorder.connect(context.destination);
+}
+
+
+
+
+
+    //update([1,2,3,4,8,8,8]);
+
+</script>
+</html>
