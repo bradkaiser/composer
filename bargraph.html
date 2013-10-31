@@ -75,8 +75,8 @@ function success(e) {
     recorder = context.createJavaScriptNode(bufferSize,2,2);
 
     var analyser = context.createAnalyser();
-    analyser.smoothingTimeConstant = 0.3;
-    analyser.fftSize = 1024; 
+    analyser.smoothingTimeConstant = 0.0;
+    analyser.fftSize = 2048; 
 
     recorder.onaudioprocess = function() {
 //        console.log(e.inputBuffer.getChannelData(0));

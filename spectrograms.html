@@ -1,0 +1,119 @@
+<html>
+<head>
+<title>Spectrograms</title>
+<style>
+
+.chart rect {
+    stroke: black;
+}
+
+.graph-holder { 
+    float:left;
+    height: 200px;
+    width: 50%;
+}
+
+</style>
+</head>
+
+<body>
+    <h1>Spectrograms</h1>
+
+    <p>we are going to draw a bar graph with d3</p>
+
+    <div id="analyzer" class="graph-holder">
+        <h2>Analyzer</h2>
+    </div> 
+    <div id="pcm" class="graph-holder">
+        <h2>PCM</h2>
+    </div> 
+
+</body>
+
+<script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script type="text/javascript">
+
+function BarGraph(el, max) {
+    this.el = el;
+    this.max = max;
+    this.chart = d3.select(el).append("svg")
+        .attr("class","chart")
+        .attr("width", "100%")
+        .attr("height", "100%");
+    this.maxHeight = parseFloat(this.chart.style("height")) / 2;
+    this.maxWidth = parseFloat(this.chart.style("width"));
+    this.y = d3.scale.linear()
+        .domain([-this.max, this.max])
+        .range([0,this.maxHeight]);
+}
+
+BarGraph.prototype.update = function(data) { 
+    var that = this;
+    var w = this.maxWidth / data.length;
+
+    var bars = this.chart.selectAll("rect").data(data);
+
+    bars.enter().append("rect");
+
+    bars.attr("x", function(d,i) { return w * i })
+        .attr("width", w)
+        .attr("y", function(d) { return that.maxHeight - that.y(Math.max(0,d)); })
+        .attr("height", function(d) { return Math.abs(that.y(d) - that.y(0)); });
+
+    bars.exit().remove();
+}
+
+
+var analyzerBarGraph = new BarGraph('#analyzer',255);
+var pcmGraph = new BarGraph('#pcm', 2);
+
+
+
+if (!navigator.getUserMedia) {
+    navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
+}
+
+if (navigator.getUserMedia) {
+    navigator.getUserMedia({audio: true}, success, function(e) { alert('boo'); });
+} else {
+    alert('not supported');
+}
+
+function success(e) {
+    console.log('success');
+    var audioContext = window.AudioContext || window.webkitAudioContext;
+    var context = new audioContext();
+
+    var volume = context.createGain();
+
+    var audioInput = context.createMediaStreamSource(e);
+
+    var bufferSize = 2048;
+    recorder = context.createJavaScriptNode(bufferSize,2,2);
+
+    var analyser = context.createAnalyser();
+    analyser.smoothingTimeConstant = 0.0;
+    analyser.fftSize = 2048; 
+
+    recorder.onaudioprocess = function(stream) {
+        var array = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(array);
+        analyzerBarGraph.update(array);
+        pcmGraph.update(stream.inputBuffer.getChannelData(0));
+
+    }
+
+    audioInput.connect(volume);
+    volume.connect(analyser);
+    analyser.connect(recorder);
+    recorder.connect(context.destination);
+}
+
+
+
+
+
+    //update([1,2,3,4,8,8,8]);
+
+</script>
+</html>
