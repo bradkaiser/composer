@@ -8,12 +8,19 @@ function Bar(x, y, width){
 		beat_value: 4,
 		resolution: Vex.Flow.RESOLUTION
   	});	
+	this.bar.setStrict(false);
 	this.stave = new Vex.Flow.Stave(x, y, width);
-	this.fullBar = 4;
+	//Keeps track of how many notes by duration will make this bar full with 4 beats (4 quarter note equivalent)
+	this.percentFull = 0;
 }
 
 Bar.prototype.addNote = function(note){
-	this.notes.push(note);
+	if (this.percentFull + 1/note.note.getDuration() > 1){
+		return;	
+	}
+	this.percentFull += 1/note.note.getDuration();
+	
+	this.notes.push(note.note);
 }
 
 Bar.prototype.finalizeVoice = function(){
@@ -31,4 +38,12 @@ Bar.prototype.draw = function(ctx, notesDraw){
 	if (notesDraw == true){
 		this.bar.draw(ctx,this.stave);
 	}
+}
+
+Bar.prototype.setBegBarType = function(bartype){
+	this.stave.setBegBarType(bartype);	
+}
+
+Bar.prototype.setEndBarType = function(bartype){
+	this.stave.setEndBarType(bartype);	
 }
