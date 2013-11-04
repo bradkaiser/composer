@@ -10,6 +10,7 @@
 <script src="js/note.js"></script>
 <script src="js/bar.js"></script>
 <script src="js/raphael.js"></script>
+<script src="js/BarManager.js"></script>
 
 <link rel="stylesheet" type="text/css" href="css/main.css">
 
@@ -17,62 +18,19 @@
 </head>
 <body>
 
-<div id="mainDiv" style=" margin:0 auto; width:820px; height:900px; margin-top:80px;">
+<div id="mainDiv" style=" margin:0 auto; width:900px; height:1000px; margin-top:40px;">
+	<div id="subsidiaryDiv" style="float:right; width:875px; height:1000px;"></div>
 </div>
 
 <script>
-	var canvas = Raphael("mainDiv",820,900);
-  var renderer = new Vex.Flow.Renderer(canvas,
-    Vex.Flow.Renderer.Backends.RAPHAEL);
-  var ctx = renderer.getContext();
-  
-  var stave3 = new Vex.Flow.Stave(410, 0, 200);
-  stave3.setBegBarType(Vex.Flow.Barline.type.DOUBLE);
-  stave3.setContext(ctx).draw();
-  var stave4 = new Vex.Flow.Stave(610, 0, 200);
-  stave4.setContext(ctx).draw();
 
+	$(document).ready(function(){
+	  $("#subsidiaryDiv").dblclick(function(){
+	   alert("The paragraph was double-clicked.");
+	  });
+	});
 
-	var note1 = new Note("c#","4","4", "");
-	var note2 = new Note("db","4","4", "");
-	var note3 = new Note("b","4","4", "r");
-	var note4 = new Note("d","5","4", "");
-	
-	var bar = new Bar(0, 0,210);
-	bar.addClef();
-	bar.addNote(note1); bar.addNote(note2); 
-	bar.finalizeVoice();
-  // Format and justify the notes to 200 pixels
-  var formatter = new Vex.Flow.Formatter().
-    joinVoices([bar.bar]).format([bar.bar], 200 * bar.percentFull);
-	bar.draw(ctx, true);
-	
-	var bar2 = new Bar(210,0,200);
-	bar2.addNote(note1); bar2.addNote(note2); bar2.addNote(note3); bar2.addNote(note4);
-	bar2.finalizeVoice();
-  // Format and justify the notes to 200 pixels
-  var formatter = new Vex.Flow.Formatter().
-    joinVoices([bar2.bar]).format([bar2.bar], 200 * bar2.percentFull);
-	bar2.draw(ctx, true);
-	
-	var bar5 = new Bar(0,150,210);
-	bar5.addClef();
-	bar5.draw(ctx, false);
-
-	var bar9 = new Bar(0, 300,210);
-	bar9.addClef();
-	bar9.draw(ctx, false);
-	
-	var bar13 = new Bar(0, 450,210);
-	bar13.addClef();
-	bar13.draw(ctx, false);
-	
-	var bar13 = new Bar(0, 600,210);
-	bar13.addClef();
-	bar13.draw(ctx, false);
-	
-	console.log(bar.notes[0].getBoundingBox());
-		
+	BarManager("subsidiaryDiv");
 	
 </script>
 

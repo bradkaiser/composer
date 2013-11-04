@@ -5,14 +5,13 @@
 //pass in empty string for durationmodifier if nothing
 function Note(key, octave, duration, durationmodifier){
 	this.key = key + "/" + octave;
-	this.duration = duration;
+	this.duration = 1/duration;
 	var that = this;
 	
 	this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: duration+durationmodifier });
 	//TODO: Fix dot notation with duration
-	var dot = duration.slice(duration.length-1);
 	if (durationmodifier == "d"){
-		duration = duration + duration/2;
+		this.duration = this.duration * (3/2);
 		addDot();	
 	}
 	

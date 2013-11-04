@@ -3,6 +3,7 @@ function Bar(x, y, width){
 	this.y = y;
 	this.width = width;
 	this.notes = new Array();
+	this.notesPositions = new Array();
 	this.bar = new Vex.Flow.Voice({
 		num_beats: 4,
 		beat_value: 4,
@@ -15,10 +16,10 @@ function Bar(x, y, width){
 }
 
 Bar.prototype.addNote = function(note){
-	if (this.percentFull + 1/note.note.getDuration() > 1){
+	if (this.percentFull + note.getDuration() > 1){
 		return;	
 	}
-	this.percentFull += 1/note.note.getDuration();
+	this.percentFull += note.getDuration();
 	
 	this.notes.push(note.note);
 }
@@ -27,16 +28,22 @@ Bar.prototype.finalizeVoice = function(){
 	this.bar.addTickables(this.notes);
 }
 
-Bar.prototype.addClef = function(){
-	if (this.x == 0){
-		this.stave.addClef("treble");
-	}
+Bar.prototype.addClef = function(clef){
+	this.stave.addClef(clef);
+}
+
+Bar.prototype.addTimeSignature = function(){
+    this.stave.addTimeSignature("4/4");
 }
 
 Bar.prototype.draw = function(ctx, notesDraw){
 	this.stave.setContext(ctx).draw();
 	if (notesDraw == true){
 		this.bar.draw(ctx,this.stave);
+	}
+	
+	for (var i = 0; i < this.notes.length; i++){
+		
 	}
 }
 
