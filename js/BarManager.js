@@ -9,17 +9,19 @@ var percussionDifference = 80;
 var currentBar = null;
 var currentX = offset;
 var currentY = 0;
+var bars = [];
+var canvas;
+var highlightedNote = null;
+var highlightedRect = null;
 
 
 function BarManager(div){
-		var canvas = Raphael(div,canvasWidth,canvasHeight);
+	canvas = Raphael(div,canvasWidth,canvasHeight);
   var renderer = new Vex.Flow.Renderer(canvas,
     Vex.Flow.Renderer.Backends.RAPHAEL);
   var ctx = renderer.getContext();
   
   var backgroundStaves = createBackground(ctx);
-
-
 
 	var note1 = new Note("c#","4","4", "");
 	var note2 = new Note("db","4","4", "");
@@ -30,21 +32,24 @@ function BarManager(div){
 	var bar = new Bar(offset, 0,barwidth);
 	bar.setBegBarType(Vex.Flow.Barline.type.NONE);
 	bar.addNote(note1); bar.addNote(note2); 
-	bar.finalizeVoice();
   // Format and justify the notes to 200 pixels
   var formatter = new Vex.Flow.Formatter().
     joinVoices([bar.bar]).format([bar.bar], 200 * bar.percentFull);
 	bar.draw(ctx, true);
+	bars.push(bar);
 	
 	var bar2 = new Bar(bar.x + bar.width,0,barwidth);
 	bar2.addNote(note1); bar2.addNote(note2); bar2.addNote(note3); bar2.addNote(note4);
-	bar2.finalizeVoice();
   // Format and justify the notes to 200 pixels
   var formatter = new Vex.Flow.Formatter().
     joinVoices([bar2.bar]).format([bar2.bar], 200 * bar2.percentFull);
 	bar2.draw(ctx, true);
+	bars.push(bar2);
 	
 }
+
+
+
 
 function createBackground(ctx){
 	
@@ -137,4 +142,29 @@ function createBackground(ctx){
 	
 	return backgroundStaves;
 	
+}
+
+function highlightNote(x,y){
+	if (highlightedNote != null){
+		highlightedRect.remove();
+		highlightedRect = null;
+	}
+	
+	var found = false;
+	for (var i = 0; i < bars.length; i++){
+		for (var j = 0; j < bars[i].notes.length;j++){
+			var bb = bars[i].notes[j].getBoundingBox();
+			if (x <= (bb.x + bb.w) && x >= (bb.x) && y <= (bb.y + bb.h) && y > bb.y){
+				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
+				highlightedRect.attr("fill", "#f00");
+				highlightedRect.attr("opacity", "0.2");
+				found = true;
+				highlightedNote = bars[i].notes[j];
+				break;
+			}
+			
+		}
+		if (found)
+			break;
+	}
 }

@@ -22,10 +22,7 @@ Bar.prototype.addNote = function(note){
 	this.percentFull += note.getDuration();
 	
 	this.notes.push(note.note);
-}
-
-Bar.prototype.finalizeVoice = function(){
-	this.bar.addTickables(this.notes);
+	this.bar.addTickable(note.note);
 }
 
 Bar.prototype.addClef = function(clef){
@@ -42,6 +39,7 @@ Bar.prototype.draw = function(ctx, notesDraw){
 		this.bar.draw(ctx,this.stave);
 	}
 	
+	//Store bounding boxes of each note
 	for (var i = 0; i < this.notes.length; i++){
 		
 	}

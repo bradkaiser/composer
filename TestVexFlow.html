@@ -24,9 +24,11 @@
 
 <script>
 
-	$(document).ready(function(){
-	  $("#subsidiaryDiv").dblclick(function(){
-	   alert("The paragraph was double-clicked.");
+	$(document).ready(function(e){
+	  $("#subsidiaryDiv").dblclick(function(e){
+		  var posX = $(this).position().left,
+            posY = $(this).position().top;
+			highlightNote(e.pageX - posX,e.pageY - posY); 
 	  });
 	});
 
