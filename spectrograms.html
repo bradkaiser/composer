@@ -7,6 +7,10 @@
     stroke: black;
 }
 
+.chart { 
+    padding: 10px;
+}
+
 .graph-holder { 
     float:left;
     height: 200px;
@@ -27,10 +31,22 @@
     <div id="pcm" class="graph-holder">
         <h2>PCM</h2>
     </div> 
+    <div id="fft" class="graph-holder">
+        <h2>FFT</h2>
+    </div> 
+    <div id="cepstrum" class="graph-holder">
+        <h2>Cepstrum</h2>
+    </div> 
+    <div id="dywapitch">
+        <h2>Dywapitch</h2>
+        <div id="pitch"> </div>
+    </div>
 
 </body>
 
 <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
+<script src="dsp.js" type="text/javascript"></script>
+<script src="dywapitch.js" type="text/javascript"></script>
 <script type="text/javascript">
 
 function BarGraph(el, max) {
@@ -66,6 +82,8 @@ BarGraph.prototype.update = function(data) {
 
 var analyzerBarGraph = new BarGraph('#analyzer',255);
 var pcmGraph = new BarGraph('#pcm', 2);
+var fftGraph = new BarGraph('#fft', .1);
+var cepstrumGraph = new BarGraph('#cepstrum', .5);
 
 
 
@@ -79,6 +97,15 @@ if (navigator.getUserMedia) {
     alert('not supported');
 }
 
+//needed map for float32Array, this is fastest implmentation, bizarrely.
+Float32Array.prototype.evalMap = function(f) {
+    var body = f.toString().replace(/function\s*\(x\)\s*\{\s*return /m, '').slice(0, -1);
+    var worker = eval('(function (src,dst){ for (var i = 0, l = src.length; i < l; i++) { var x = src[i]; dst[i] = ' + body + '}})');
+    var dst = new Float32Array(this.length);
+    worker(this, dst);
+    return dst;
+};
+
 function success(e) {
     console.log('success');
     var audioContext = window.AudioContext || window.webkitAudioContext;
@@ -91,16 +118,47 @@ function success(e) {
     var bufferSize = 2048;
     recorder = context.createJavaScriptNode(bufferSize,2,2);
 
+    var fft = new RFFT(bufferSize, 44100);
+    var cepstrumFft = new FFT(1024, 44100);
+
     var analyser = context.createAnalyser();
     analyser.smoothingTimeConstant = 0.0;
     analyser.fftSize = 2048; 
+
+    //dywapitch stuff
+    var trackerPtr = Module._malloc(12);
+    Module._dywapitch_inittracking(trackerPtr);
+    var computePitch = Module.cwrap('dywapitch_computepitch', 'number', ['number','number','number', 'number']);
+
 
     recorder.onaudioprocess = function(stream) {
         var array = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(array);
         analyzerBarGraph.update(array);
-        pcmGraph.update(stream.inputBuffer.getChannelData(0));
 
+        var raw = stream.inputBuffer.getChannelData(0);
+        pcmGraph.update(raw);
+
+        fft.forward(raw);
+        fftGraph.update(fft.spectrum);
+
+        var logSpectrum = fft.spectrum.evalMap( function(x) { return Math.log(x); });
+        logSpectrum = logSpectrum.evalMap( function(x) { return isNaN(x) ? 0 : x; });
+
+        cepstrumFft.forward(logSpectrum);
+        cepstrumGraph.update(cepstrumFft.spectrum);
+
+        //dywapitch
+        var highRaw = raw.evalMap(function(x) { return x * 1000; });
+        var raw64 = new Float64Array(highRaw);
+        var bufferPtr = Module._malloc(raw64.BYTES_PER_ELEMENT * raw64.length);
+        Module.HEAPU8.set(raw64, bufferPtr);
+        //var result = Module._dywapitch_computepitch(trackerPtr, bufferPtr, 0, raw64.length);
+        var result = computePitch(trackerPtr, bufferPtr, 0, raw64.length);
+        console.log(result);
+        console.log(Module.getValue(trackerPtr, 'double'));
+        console.log(Module.getValue(trackerPtr + 8, 'i32'));
+        Module._free(bufferPtr);
     }
 
     audioInput.connect(volume);
