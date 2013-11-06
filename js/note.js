@@ -6,6 +6,7 @@
 function Note(key, octave, duration, durationmodifier){
 	this.key = key + "/" + octave;
 	this.duration = 1/duration;
+	this.highlighted = false;
 	var that = this;
 	
 	this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: duration+durationmodifier });
@@ -56,4 +57,8 @@ Note.prototype.getDuration = function(){
 
 Note.prototype.getKey = function(){
 	return this.key;	
+}
+
+Note.prototype.setHighlighted = function(hl){
+	this.hightlighted = hl;
 }

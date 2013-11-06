@@ -30,7 +30,14 @@
             posY = $(this).position().top;
 			highlightNote(e.pageX - posX,e.pageY - posY); 
 	  });
+	  
+	  $("#subsidiaryDiv").click(function(e){
+			moveNote(); 
+	  });
+	  
 	});
+	
+	
 
 	BarManager("subsidiaryDiv");
 	

@@ -21,8 +21,12 @@ Bar.prototype.addNote = function(note){
 	}
 	this.percentFull += note.getDuration();
 	
-	this.notes.push(note.note);
+	this.notes.push(note);
 	this.bar.addTickable(note.note);
+}
+
+Bar.prototype.insertSwapNotes = function(note, note2){
+	
 }
 
 Bar.prototype.addClef = function(clef){
@@ -34,14 +38,11 @@ Bar.prototype.addTimeSignature = function(){
 }
 
 Bar.prototype.draw = function(ctx, notesDraw){
+	var formatter = new Vex.Flow.Formatter().
+    joinVoices([this.bar]).format([this.bar], 200 * this.percentFull);
 	this.stave.setContext(ctx).draw();
 	if (notesDraw == true){
 		this.bar.draw(ctx,this.stave);
-	}
-	
-	//Store bounding boxes of each note
-	for (var i = 0; i < this.notes.length; i++){
-		
 	}
 }
 

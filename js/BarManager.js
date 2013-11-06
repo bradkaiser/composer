@@ -9,19 +9,24 @@ var percussionDifference = 80;
 var currentBar = null;
 var currentX = offset;
 var currentY = 0;
+
+var backgroundStaves = [];
+var connectors = [];
 var bars = [];
 var canvas;
+
 var highlightedNote = null;
 var highlightedRect = null;
 
+var ctx;
 
 function BarManager(div){
 	canvas = Raphael(div,canvasWidth,canvasHeight);
   var renderer = new Vex.Flow.Renderer(canvas,
     Vex.Flow.Renderer.Backends.RAPHAEL);
-  var ctx = renderer.getContext();
+  ctx = renderer.getContext();
   
-  var backgroundStaves = createBackground(ctx);
+  	createBackground(ctx);
 
 	var note1 = new Note("c#","4","4", "");
 	var note2 = new Note("db","4","4", "");
@@ -32,17 +37,11 @@ function BarManager(div){
 	var bar = new Bar(offset, 0,barwidth);
 	bar.setBegBarType(Vex.Flow.Barline.type.NONE);
 	bar.addNote(note1); bar.addNote(note2); 
-  // Format and justify the notes to 200 pixels
-  var formatter = new Vex.Flow.Formatter().
-    joinVoices([bar.bar]).format([bar.bar], 200 * bar.percentFull);
 	bar.draw(ctx, true);
 	bars.push(bar);
 	
 	var bar2 = new Bar(bar.x + bar.width,0,barwidth);
 	bar2.addNote(note1); bar2.addNote(note2); bar2.addNote(note3); bar2.addNote(note4);
-  // Format and justify the notes to 200 pixels
-  var formatter = new Vex.Flow.Formatter().
-    joinVoices([bar2.bar]).format([bar2.bar], 200 * bar2.percentFull);
 	bar2.draw(ctx, true);
 	bars.push(bar2);
 	
@@ -52,8 +51,6 @@ function BarManager(div){
 
 
 function createBackground(ctx){
-	
-	var backgroundStaves = new Array();
   	
 	var barBack1 = new Bar(25,0,sheetWidth);
 	barBack1.addClef("treble");
@@ -138,33 +135,71 @@ function createBackground(ctx){
 	backgroundStaves.push(barBack3L);
 	backgroundStaves.push(barBack4);
 	backgroundStaves.push(barBack4L);
-
 	
-	return backgroundStaves;
-	
+	connectors.push(connector);
+	connectors.push(connector2);
+	connectors.push(connector3);
+	connectors.push(connector4);
+	connectors.push(connector5);
+	connectors.push(connector6);
+	connectors.push(connector7);
+	connectors.push(connector8);	
 }
 
 function highlightNote(x,y){
 	if (highlightedNote != null){
 		highlightedRect.remove();
 		highlightedRect = null;
+		highlightedNote == null;
 	}
 	
 	var found = false;
 	for (var i = 0; i < bars.length; i++){
 		for (var j = 0; j < bars[i].notes.length;j++){
-			var bb = bars[i].notes[j].getBoundingBox();
+			var bb = bars[i].notes[j].note.getBoundingBox();
 			if (x <= (bb.x + bb.w) && x >= (bb.x) && y <= (bb.y + bb.h) && y > bb.y){
 				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
 				highlightedRect.attr("fill", "#f00");
 				highlightedRect.attr("opacity", "0.2");
 				found = true;
 				highlightedNote = bars[i].notes[j];
+				bars[i].notes[j].setHighlighted(true);
 				break;
 			}
 			
 		}
 		if (found)
 			break;
+	}
+}
+
+function moveNote(){
+	if (highlightedNote != null){
+		for (var i = 0; i < bars.length; i++){
+			for (var j = 0; j < bars[i].notes.length;j++){	
+				if (highlightedNote == bars[i].notes[j]){
+					var temp = bars[i].notes[j];
+					bars[i].notes[j] = bars[i].notes[j+1];
+					bars[i].notes[j+1] = temp;
+					redraw();
+					break;
+				}
+			}
+		}
+		
+	}
+	
+}
+
+function redraw(){
+	canvas.clear();
+	for (var i = 0; i < backgroundStaves.length; i++){
+		backgroundStaves[i].draw(ctx, false);
+	}
+	for (var i = 0; i < connectors.length;i++){
+		connectors[i].setContext(ctx).draw();		
+	}
+	for (var i = 0; i < bars.length;i++){
+		bars[i].draw(ctx,true);	
 	}
 }
