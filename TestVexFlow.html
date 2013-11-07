@@ -11,6 +11,14 @@
 <script src="js/bar.js"></script>
 <script src="js/raphael.js"></script>
 <script src="js/BarManager.js"></script>
+<script src="js/MusicManager.js"></script>
+<script src="js/MIDI.js"></script>
+<script src="js/jasmid/audio.js"></script>
+<script src="js/jasmid/midifile.js"></script>
+<script src="js/jasmid/replayer.js"></script>
+<script src="js/jasmid/stream.js"></script>
+<script src="js/jasmid/synth.js"></script>
+<script src="js/base64binary.js"></script>
 
 <link rel="stylesheet" type="text/css" href="css/main.css">
 
@@ -26,19 +34,21 @@
 
 	$(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
-		  var posX = $(this).position().left,
+		  /*var posX = $(this).position().left,
             posY = $(this).position().top;
-			highlightNote(e.pageX - posX,e.pageY - posY); 
+			highlightNote(e.pageX - posX,e.pageY - posY); */
+			
+			//playback("note");
+			
 	  });
 	  
-	  $("#subsidiaryDiv").click(function(e){
-			moveNote(); 
-	  });
+	
 	  
 	});
 	
-	
+	var music = new MusicManager();
 
+	//Create score
 	BarManager("subsidiaryDiv");
 	
 </script>

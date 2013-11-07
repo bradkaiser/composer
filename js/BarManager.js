@@ -30,13 +30,15 @@ function BarManager(div){
 
 	var note1 = new Note("c#","4","4", "");
 	var note2 = new Note("db","4","4", "");
+	var note5 = new Note("b","4","4","r");
+	var note6 = new Note("b","4","4","");
 	var note3 = new Note("b","4","4", "r");
 	var note4 = new Note("d","5","4", "");
 	
 	
 	var bar = new Bar(offset, 0,barwidth);
 	bar.setBegBarType(Vex.Flow.Barline.type.NONE);
-	bar.addNote(note1); bar.addNote(note2); 
+	bar.addNote(note1); bar.addNote(note2); bar.addNote(note5); bar.addNote(note6);
 	bar.draw(ctx, true);
 	bars.push(bar);
 	
@@ -112,11 +114,13 @@ function createBackground(ctx){
 	var barBack4 = new Bar(25, staveDifference * 3,sheetWidth);
 	barBack4.addClef("treble");
 	barBack4.addTimeSignature();
+	barBack4.setEndBarType(Vex.Flow.Barline.type.END);
 	barBack4.draw(ctx, false);
 	
 	var barBack4L = new Bar(25, barBack4.y + percussionDifference,sheetWidth);
 	barBack4L.addClef("percussion");
 	barBack4L.addTimeSignature();
+	barBack4L.setEndBarType(Vex.Flow.Barline.type.END);
 	barBack4L.draw(ctx, false);
 	
 	var connector7 = new Vex.Flow.StaveConnector(barBack4.stave, barBack4L.stave);
