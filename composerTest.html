@@ -1,0 +1,59 @@
+<html>
+<head>
+<title>Composer</title>
+
+<script src="js/jquery-1.10.2.min.js"></script>
+<script src="js/vexflow-min.js"></script>
+<script src="js/raphael.js"></script>
+
+</head>
+<body>
+<h1>Composer UI Test</h1>
+
+<div id="notationHolder"></div>
+</body>
+</html>
+<script>
+
+var canvas = Raphael('notationHolder', 1000,1000);
+
+var renderer = new Vex.Flow.Renderer(canvas, Vex.Flow.Renderer.Backends.RAPHAEL);
+var ctx = renderer.getContext();
+
+var stave = new Vex.Flow.Stave(10,10,800);
+stave.addClef("treble");
+stave.setContext(ctx).draw();
+
+
+var notes =[
+        new Vex.Flow.StaveNote({keys: ["cb/4"], duration: "q"})
+        ,new Vex.Flow.StaveNote({keys: ["a/5"], duration: "q"})
+        ,new Vex.Flow.StaveNote({keys: ["c/6"], duration: "8"})
+        ,new Vex.Flow.StaveNote({keys: ["d/5"], duration: "8"})
+        ,new Vex.Flow.StaveNote({keys: ["c/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["d/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["e/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["f/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["c/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["d/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["e/5"], duration: "32"})
+        ,new Vex.Flow.StaveNote({keys: ["f/5"], duration: "32"})
+]
+
+
+var voice = new Vex.Flow.Voice({
+        num_beats: 4,
+        beat_value: 4,
+        resolution: Vex.Flow.RESOLUTION
+});
+
+voice.addTickables(notes);
+
+var formatter = new Vex.Flow.Formatter()
+        .joinVoices([voice]).format([voice],800);
+    
+voice.draw(ctx,stave);
+
+
+
+</script>

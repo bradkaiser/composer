@@ -39,6 +39,7 @@
 <script src="js/lib/dsp.js" type="text/javascript"></script>
 <script src="js/BarGraph.js" type="text/javascript"></script>
 <script src="js/PitchDetector.js" type="text/javascript"></script>
+<script src="js/NoteSnapper.js"></script>
 <script type="text/javascript">
 
 var pcmGraph = new BarGraph('#pcm', .1);
@@ -93,7 +94,7 @@ function success(e) {
     recorder = context.createJavaScriptNode(bufferSize,2,2);
     var fft = new RFFT(bufferSize, 44100);
     var peakSpan = document.getElementById('peak');
-    var pitcher = new PitchDetector();
+    var pitcher = new AudioInput.PitchDetector();
 
     audioInput.connect(volume);
     volume.connect(recorder);
