@@ -1,18 +1,19 @@
 
-var barwidth = 200;
+var barwidth = 250;
 var offset = 75;
-var canvasWidth = 875;
+var canvasWidth = 1075;
 var canvasHeight = 1000;
-var sheetWidth = 850;
+var sheetWidth = 1050;
 var staveDifference = 200;
 var percussionDifference = 80;
 var currentBar = null;
-var currentX = offset;
-var currentY = 0;
+var nextX = offset;
+var nextY = 0;
 
 var backgroundStaves = [];
 var connectors = [];
 var bars = [];
+var percussionBars = [];
 var canvas;
 
 var highlightedNote = null;
@@ -28,28 +29,52 @@ function BarManager(div){
   
   	createBackground(ctx);
 
-	var note1 = new Note("c#","4","4", "");
-	var note2 = new Note("db","4","4", "");
-	var note5 = new Note("b","4","4","r");
-	var note6 = new Note("b","4","4","");
-	var note3 = new Note("b","4","4", "r");
-	var note4 = new Note("d","5","4", "");
-	
-	
-	var bar = new Bar(offset, 0,barwidth);
-	bar.setBegBarType(Vex.Flow.Barline.type.NONE);
-	bar.addNote(note1); bar.addNote(note2); bar.addNote(note5); bar.addNote(note6);
-	bar.draw(ctx, true);
-	bars.push(bar);
-	
-	var bar2 = new Bar(bar.x + bar.width,0,barwidth);
-	bar2.addNote(note1); bar2.addNote(note2); bar2.addNote(note3); bar2.addNote(note4);
-	bar2.draw(ctx, true);
-	bars.push(bar2);
+	var note1 = new Note("c#","4","4","");
 	
 }
 
 
+function addNoteToStave(note){
+	
+	if (currentBar == null){
+		currentBar = new Bar(nextX, nextY, barwidth);
+		currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+		nextX = currentBar.x + currentBar.width;
+		bars.push(currentBar);
+	}
+	
+	//trim note if duration is greater than the beats left in the bar
+	note = full(currentBar, note);
+	
+	currentBar.addNote(note);
+	
+	redraw();
+	
+	if (currentBar.getPercentFull() >= 1){
+		if (nextX > 675){
+			nextY = nextY + staveDifference;
+			currentBar = new Bar(offset,nextY,barwidth);	
+			currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+			nextX = currentBar.x + currentBar.width;
+		}
+		else{
+			currentBar = new Bar(nextX,nextY,barwidth);
+			nextX = nextX + barwidth;
+		}
+		bars.push(currentBar);
+	}
+	
+	
+}
+
+function full(bar, note){
+	if (note.getDuration() + bar.getPercentFull() > 1){
+		note.setDuration(1- bar.getPercentFull());
+	}
+	
+	return note;
+	
+}
 
 
 function createBackground(ctx){
@@ -190,9 +215,7 @@ function moveNote(){
 				}
 			}
 		}
-		
 	}
-	
 }
 
 function redraw(){
@@ -205,5 +228,8 @@ function redraw(){
 	}
 	for (var i = 0; i < bars.length;i++){
 		bars[i].draw(ctx,true);	
+	}
+	for (var i = 0; i < percussionBars.length;i++){
+		percussionBars[i].draw(ctx,true);	
 	}
 }

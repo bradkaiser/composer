@@ -26,27 +26,27 @@
 </head>
 <body>
 
-<div id="mainDiv" style=" margin:0 auto; width:900px; height:1000px; margin-top:40px;">
-	<div id="subsidiaryDiv" style="float:right; width:875px; height:1000px;"></div>
+<div id="mainDiv" style=" margin:0 auto; width:1100px; height:1000px; margin-top:40px;">
+	<div id="subsidiaryDiv" style="float:right; width:1075px; height:1000px;">
+    </div>
 </div>
 
 <script>
 
 	$(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
-		  /*var posX = $(this).position().left,
+		  var posX = $(this).position().left,
             posY = $(this).position().top;
-			highlightNote(e.pageX - posX,e.pageY - posY); */
-			
-			//playback("note");
-			
+			highlightNote(e.pageX - posX,e.pageY - posY); 	
 	  });
+	  
+	  
 	  
 	
 	  
 	});
 	
-	var music = new MusicManager();
+	
 
 	//Create score
 	BarManager("subsidiaryDiv");

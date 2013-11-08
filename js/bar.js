@@ -42,8 +42,9 @@ Bar = (function() {
     },
 	
 	draw: function(ctx, notesDraw) {
+		
     	var formatter = new Vex.Flow.Formatter().
-		joinVoices([this.bar]).format([this.bar], 200 * this.percentFull);
+		joinVoices([this.bar]).format([this.bar], 250 * this.percentFull);
 		this.stave.setContext(ctx).draw();
 		if (notesDraw == true){
 			this.bar.draw(ctx,this.stave);
@@ -57,6 +58,10 @@ Bar = (function() {
 	
 	setEndBarType: function(bartype) {
 		this.stave.setEndBarType(bartype);	
+	},
+	
+	getPercentFull: function(){
+		return this.percentFull;	
 	}
 	
 	

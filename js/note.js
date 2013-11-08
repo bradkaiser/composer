@@ -50,7 +50,7 @@ Note = (function() {
 		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: this.duration });
 	},
 
-    getDuration: function(clef) {
+    getDuration: function() {
       	return this.duration;
     },
 	
