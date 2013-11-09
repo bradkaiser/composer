@@ -12,6 +12,10 @@ var ComposerAudio = (function(ComposerAudio ) {
             navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
         }
 
+        el.onclick = function(e) {
+            that.toggle();
+        };
+
         var setUpNodes = function(e) {
             console.log('success');
             var audioContext = window.AudioContext || window.webkitAudioContext;
@@ -29,6 +33,14 @@ var ComposerAudio = (function(ComposerAudio ) {
                 that.el.dispatchEvent(rawEvent);
             }
         }
+
+        this.toggle = function() {
+            if(that.context) {
+                that.stop();
+            } else {
+                that.start();
+            }
+        };
 
         this.start = function() {
             if (!that.context) {
