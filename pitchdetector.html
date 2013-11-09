@@ -1,6 +1,6 @@
 <html>
 <head>
-<title>Spectrograms</title>
+<title>Pitch Detector</title>
 <style>
 
 .chart rect {
@@ -25,6 +25,9 @@
 
     <p>Notes are being printed to console.</p>
 
+
+    <div id="recordButton">Record Button</div>
+
     <div id="pcm" class="graph-holder">
         <h2>PCM</h2>
     </div> 
@@ -40,20 +43,21 @@
 <script src="js/BarGraph.js" type="text/javascript"></script>
 <script src="js/PitchDetector.js" type="text/javascript"></script>
 <script src="js/NoteSnapper.js"></script>
+<script src="js/Microphone.js"></script>
 <script type="text/javascript">
 
 var pcmGraph = new BarGraph('#pcm', .1);
 var fftGraph = new BarGraph('#fft', .01);
 
-if (!navigator.getUserMedia) {
-    navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia || navigator.msGetUserMedia;
-}
+var el = document.getElementById('recordButton');
+var bufferSize = 2048;
+var microphone = new ComposerAudio.Microphone(el,bufferSize);
+var pitchDetector = new ComposerAudio.PitchDetector(bufferSize);
 
-if (navigator.getUserMedia) {
-    navigator.getUserMedia({audio: true}, success, function(e) { alert('boo'); });
-} else {
-    alert('not supported');
-}
+
+el.addEventListener('rawAudio', function(e) { pitchDetector.process(e.detail) });
+window.addEventListener('noteEvent', function(e) { console.log(e.detail) });
+
 
 //needed map for float32Array, this is fastest implmentation, bizarrely.
 Float32Array.prototype.evalMap = function(f) {
@@ -64,55 +68,6 @@ Float32Array.prototype.evalMap = function(f) {
     return dst;
 };
 
-var bufferSize = 2048;
-
-var findPeak = function(sampleRate, data) {
-    var peak = -1;
-    var peakIndex = -1;
-    var bucketFreq = sampleRate / bufferSize;
-    var sum = 0;
-
-    for(var i = 0; i < data.length; i++) {
-            sum += data[i];
-            if (data[i] > peak) {
-                peak = data[i];
-                peakIndex = i;
-            }
-    };
-
-    return peakIndex * bucketFreq;
-};
-
-window.addEventListener('noteEvent', function(e) { console.log(e.detail); });
-
-function success(e) {
-    console.log('success');
-    audioContext = window.AudioContext || window.webkitAudioContext;
-    context = new audioContext();
-    volume = context.createGain();
-    audioInput = context.createMediaStreamSource(e);
-    recorder = context.createJavaScriptNode(bufferSize,2,2);
-    var fft = new RFFT(bufferSize, 44100);
-    var peakSpan = document.getElementById('peak');
-    var pitcher = new AudioInput.PitchDetector();
-
-    audioInput.connect(volume);
-    volume.connect(recorder);
-    recorder.connect(context.destination);
-
-    recorder.onaudioprocess = function(stream) {
-        var raw = stream.inputBuffer.getChannelData(0);
-        pcmGraph.update(raw);
-
-
-        fft.forward(raw);
-        fftGraph.update(fft.spectrum);
-        var peak = findPeak(44100, fft.spectrum);
-        peakSpan.innerHTML = peak;
-
-        pitcher.process(raw,fft.spectrum);
-    }
-}
 
 </script>
 </html>

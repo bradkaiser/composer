@@ -1,14 +1,17 @@
-var AudioInput = (function(AudioInput) {
+var ComposerAudio = (function(ComposerAudio, RFFT) {
 
-    function PitchDetector() {
+    function PitchDetector(bufferSize) {
+        this.bufferSize = bufferSize;
         this.on = false;
         this.currentFreq = -1;
         this.startTime = -1;
         this.endTime = -1;
     }
 
-    PitchDetector.prototype.process = function(pcm, spectrum) { 
+    PitchDetector.prototype.process = function(pcm) { 
         var maxVol = Math.max.apply(Math, pcm);
+        var fft = new RFFT(this.bufferSize, 44100)
+        fft.forward(pcm);
 
         if (maxVol > 0.01) {
             if(this.on) { 
@@ -16,7 +19,7 @@ var AudioInput = (function(AudioInput) {
             } else {
                 this.on = true;
                 this.startTime = new Date().getTime();
-                this.currentFreq = findPeak(44100, spectrum);
+                this.currentFreq = this.findPeak(44100, fft.spectrum);
             }
         } else {
             if (this.on) {
@@ -31,12 +34,35 @@ var AudioInput = (function(AudioInput) {
                 //do nothing
             }
         }
+
+        //debug code remove this
+        pcmGraph.update(pcm);
+        fftGraph.update(fft.spectrum);
+
+
     };
 
-    AudioInput.PitchDetector = PitchDetector;
+    PitchDetector.prototype.findPeak = function(sampleRate, data) {
+        var peak = -1;
+        var peakIndex = -1;
+        var bucketFreq = sampleRate / this.bufferSize;
+        var sum = 0;
 
-    return AudioInput;
-}(AudioInput || {}));
+        for(var i = 0; i < data.length; i++) {
+                sum += data[i];
+                if (data[i] > peak) {
+                    peak = data[i];
+                    peakIndex = i;
+                }
+        };
+
+        return peakIndex * bucketFreq;
+    };
+
+    ComposerAudio.PitchDetector = PitchDetector;
+
+    return ComposerAudio;
+}(ComposerAudio || {}, RFFT));
 
 
 

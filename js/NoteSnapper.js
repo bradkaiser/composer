@@ -1,4 +1,4 @@
-var AudioInput = (function(AudioInput) {
+var ComposerAudio = (function(ComposerAudio) {
     function NoteSnapper(bpm) {
         this.bpm = bpm;
         this.middleAFreq = 440;
@@ -79,8 +79,8 @@ var AudioInput = (function(AudioInput) {
         return results;
     };
 
-    AudioInput.NoteSnapper = NoteSnapper;
-    return AudioInput;
+    ComposerAudio.NoteSnapper = NoteSnapper;
+    return ComposerAudio;
 
-}(AudioInput || {}));
+}(ComposerAudio || {}));
 
