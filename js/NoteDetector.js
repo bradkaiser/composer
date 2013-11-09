@@ -1,21 +1,6 @@
 var ComposerAudio = (function(ComposerAudio, RFFT) {
 
-    function NoteDetector(bufferSize, bpm) {
-        this.bufferSize = bufferSize;
-        this.on = false;
-        this.currentFreq = -1;
-        this.startTime = -1;
-        this.endTime = -1;
-
-        this.bpm = bpm;
-        this.middleAFreq = 440;
-
-        //for now we are assuming 4 4 time
-        //one beat is a quarter note
-        this.msPerQuarter = (60 / this.bpm) * 1000;
-        this.msPer32nd = this.msPerQuarter / (2 * 2 * 2);
-    }
-
+    //private static properties and methods
     var noteList = [
             "a","bb","b","c","db","d","eb","e","f","gb","g","ab"
     ];
@@ -36,10 +21,6 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
         return Math.log(x) / Math.LN2;
     };
 
-    var freqToKeyNumber = function(that, freq) {
-        return Math.round(12 * log2(freq / that.middleAFreq) + 49);
-    };
-
     var keyNumberToOctave = function(keyNumber) {
         return Math.floor( (keyNumber - 4 + 12) / 12);
     };
@@ -57,87 +38,119 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
         return result;
     };
 
-    var msToNoteType = function(that, duration) {
-        //largest note we return is whole note
-        //smallest note we return in 32nd note
-        var thirtySecondNotes = Math.round(duration / that.msPer32nd);
-        var result = [];
 
-        noteTypeList.forEach( function(noteType) {
-                var occurrences = Math.floor( thirtySecondNotes / noteType.value );
-                thirtySecondNotes = thirtySecondNotes % noteType.value;
+    function NoteDetector(bufferSize, bpm) {
+        //public properties
+        this.bufferSize = bufferSize;
+        this.bpm = bpm;
+        this.middleAFreq = 440;
 
-                result = result.concat(repeatStr(occurrences, noteType.name));
-        });
+        //private properties
+        var on = false;
+        var currentFreq = -1;
+        var startTime = -1;
+        var endTime = -1;
+        var that = this;
 
-        return result;
-    }
+        //for now we are assuming 4 4 time
+        //one beat is a quarter note
+        var msPerQuarter = (60 / this.bpm) * 1000;
+        var msPer32nd = msPerQuarter / (2 * 2 * 2);
 
-    NoteDetector.prototype.rawEventToNotes = function(raw) {
-        var types = msToNoteType(this, raw.duration);
-        var keyNumber = freqToKeyNumber(this, raw.freq);
-        var octave = keyNumberToOctave(keyNumber);
-        var note = keyNumberToNote(keyNumber);
-
-        var results = types.map(function (type) {
-                return {note: note, octave: octave, type: type};
-        });
-
-        return results;
-    };
-
-    NoteDetector.prototype.process = function(pcm) { 
-        var maxVol = Math.max.apply(Math, pcm);
-        var fft = new RFFT(this.bufferSize, 44100)
-        fft.forward(pcm);
-
-        if (maxVol > 0.01) {
-            if(this.on) { 
-                //do nothing;
-            } else {
-                this.on = true;
-                this.startTime = new Date().getTime();
-                this.currentFreq = this.findPeak(44100, fft.spectrum);
-            }
-        } else {
-            if (this.on) {
-                this.on = false;
-                this.endTime = new Date().getTime();
-                
-                //console.log({freq: this.currentFreq, duration: this.endTime - this.startTime, start: this.startTime});
-                var audioObject = {freq: this.currentFreq, duration: this.endTime - this.startTime, start: this.startTime};
-                var noteObject = this.rawEventToNotes(audioObject);
-                var noteEvent = new CustomEvent("noteEvent",{detail: noteObject});
-                window.dispatchEvent(noteEvent);
-
-            } else {
-                //do nothing
-            }
-        }
-
-        //debug code remove this
-        pcmGraph.update(pcm);
-        fftGraph.update(fft.spectrum);
-
-
-    };
-
-    NoteDetector.prototype.findPeak = function(sampleRate, data) {
-        var peak = -1;
-        var peakIndex = -1;
-        var bucketFreq = sampleRate / this.bufferSize;
-        var sum = 0;
-
-        for(var i = 0; i < data.length; i++) {
-                sum += data[i];
-                if (data[i] > peak) {
-                    peak = data[i];
-                    peakIndex = i;
-                }
+        //private methods
+        var freqToKeyNumber = function(freq) {
+            return Math.round(12 * log2(freq / that.middleAFreq) + 49);
         };
 
-        return peakIndex * bucketFreq;
-    };
+        var msToNoteType = function(duration) {
+            //largest note we return is whole note
+            //smallest note we return in 32nd note
+            var thirtySecondNotes = Math.round(duration / msPer32nd);
+            var result = [];
+
+            noteTypeList.forEach( function(noteType) {
+                    var occurrences = Math.floor( thirtySecondNotes / noteType.value );
+                    thirtySecondNotes = thirtySecondNotes % noteType.value;
+
+                    result = result.concat(repeatStr(occurrences, noteType.name));
+            });
+
+            return result;
+        }
+        
+        var rawEventToNotes = function(raw) {
+            var types = msToNoteType(raw.duration);
+            var keyNumber = freqToKeyNumber(raw.freq);
+            var octave = keyNumberToOctave(keyNumber);
+            var note = keyNumberToNote(keyNumber);
+
+            var results = types.map(function (type) {
+                    return {note: note, octave: octave, type: type};
+            });
+
+            return results;
+        };
+
+        var findPeak = function(sampleRate, data) {
+            var peak = -1;
+            var peakIndex = -1;
+            var bucketFreq = sampleRate / this.bufferSize;
+            var sum = 0;
+
+            for(var i = 0; i < data.length; i++) {
+                    sum += data[i];
+                    if (data[i] > peak) {
+                        peak = data[i];
+                        peakIndex = i;
+                    }
+            };
+
+            return peakIndex * bucketFreq;
+        };
+
+        //public methods
+        this.process = function(pcm) { 
+            var maxVol = Math.max.apply(Math, pcm);
+            var fft = new RFFT(this.bufferSize, 44100)
+            fft.forward(pcm);
+
+            if (maxVol > 0.01) {
+                if(on) { 
+                    //do nothing;
+                } else {
+                    on = true;
+                    startTime = new Date().getTime();
+                    currentFreq = findPeak(44100, fft.spectrum);
+                }
+            } else {
+                if (on) {
+                    on = false;
+                    endTime = new Date().getTime();
+                    
+                    //console.log({freq: this.currentFreq, duration: this.endTime - this.startTime, start: this.startTime});
+                    var audioObject = {freq: currentFreq, duration: endTime - startTime, start: startTime};
+                    var noteObject = rawEventToNotes(audioObject);
+                    var noteEvent = new CustomEvent("noteEvent",{detail: noteObject});
+                    window.dispatchEvent(noteEvent);
+
+                } else {
+                    //do nothing
+                }
+            }
+
+            //debug code remove this
+            pcmGraph.update(pcm);
+            fftGraph.update(fft.spectrum);
+
+
+        };
+
+    }
+
+
+
+
+
 
     ComposerAudio.NoteDetector = NoteDetector;
 
