@@ -115,15 +115,15 @@ function success(e) {
 
     var audioInput = context.createMediaStreamSource(e);
 
-    var bufferSize = 2048;
+    var bufferSize = 512;
     recorder = context.createJavaScriptNode(bufferSize,2,2);
 
     var fft = new RFFT(bufferSize, 44100);
-    var cepstrumFft = new FFT(1024, 44100);
+    var cepstrumFft = new FFT(bufferSize / 2, 44100);
 
     var analyser = context.createAnalyser();
     analyser.smoothingTimeConstant = 0.0;
-    analyser.fftSize = 2048; 
+    analyser.fftSize = bufferSize; 
 
     //dywapitch stuff
     var trackerPtr = Module._malloc(12);

@@ -1,4 +1,4 @@
-var ComposerAudio = (function(ComposerAudio, RFFT) {
+var ComposerAudio = (function(ComposerAudio, Module) {
 
     //private static properties and methods
     var noteList = [
@@ -50,16 +50,31 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
         var currentFreq = -1;
         var startTime = -1;
         var endTime = -1;
+        var trackerPtr = Module._malloc(12);
+        Module._dywapitch_inittracking(trackerPtr);
         var that = this;
 
-        //for now we are assuming 4 4 time
-        //one beat is a quarter note
+        //for now we are assuming 4 4 time. One beat is a quarter note
         var msPerQuarter = (60 / this.bpm) * 1000;
         var msPer32nd = msPerQuarter / (2 * 2 * 2);
 
         //private methods
         var freqToKeyNumber = function(freq) {
             return Math.round(12 * log2(freq / that.middleAFreq) + 49);
+        };
+
+        var computePitch = Module.cwrap('dywapitch_computepitch', 'number', ['number','number','number','number']);
+
+        var rawToPitch = function(raw) {
+            var rawNumBytes = raw.BYTES_PER_ELEMENT * raw.length;
+            var rawPtr = Module._malloc(rawNumBytes);
+            var heapBytes = new Uint8Array(Module.HEAPU8.buffer, rawPtr, rawNumBytes);
+            heapBytes.set(new Uint8Array(raw.buffer));
+            var pitch = computePitch(trackerPtr, rawPtr, 0 , raw.length);
+            var confidence = Module.getValue(trackerPtr + 8, 'i8');
+            Module._free(rawPtr);
+
+            return {'pitch':pitch, 'confidence': confidence};
         };
 
         var msToNoteType = function(duration) {
@@ -108,19 +123,37 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
             return peakIndex * bucketFreq;
         };
 
+        var max = function(xs) {
+            var result = 0;
+            for (var i = 0; i < xs.length; i++) {
+                if (xs[i] > result) { result = xs[i]; }
+            }
+
+            return result;
+        }
+
+         var compressOctaves = function(note) { 
+            if (note.octave > 5) {
+                note.octave = 5;
+            }
+
+            if (note.octave < 4) {
+                note.octave = 4;
+            }
+        }
+
         //public methods
         this.process = function(pcm) { 
-            var maxVol = Math.max.apply(Math, pcm);
-            var fft = new RFFT(this.bufferSize, 44100)
-            fft.forward(pcm);
+            //var maxVol = max(pcm);
+            var result = rawToPitch(pcm);
 
-            if (maxVol > 0.01) {
+            if (result.confidence > 1) {
                 if(on) { 
                     //do nothing;
                 } else {
                     on = true;
                     startTime = new Date().getTime();
-                    currentFreq = findPeak(44100, fft.spectrum);
+                    currentFreq = result.pitch;
                 }
             } else {
                 if (on) {
@@ -129,20 +162,16 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
                     
                     //console.log({freq: this.currentFreq, duration: this.endTime - this.startTime, start: this.startTime});
                     var audioObject = {freq: currentFreq, duration: endTime - startTime, start: startTime};
-                    var noteObject = rawEventToNotes(audioObject);
-                    var noteEvent = new CustomEvent("noteEvent",{detail: noteObject});
+                    var noteObjects = rawEventToNotes(audioObject);
+//                    noteObjects.forEach(function (note) {
+//                        compressOctaves(note);
+//                    });
+                    var noteEvent = new CustomEvent("noteEvent",{detail: noteObjects});
                     window.dispatchEvent(noteEvent);
-
                 } else {
                     //do nothing
                 }
             }
-
-            //debug code remove this
-            pcmGraph.update(pcm);
-            fftGraph.update(fft.spectrum);
-
-
         };
 
     }
@@ -155,7 +184,7 @@ var ComposerAudio = (function(ComposerAudio, RFFT) {
     ComposerAudio.NoteDetector = NoteDetector;
 
     return ComposerAudio;
-}(ComposerAudio || {}, RFFT));
+}(ComposerAudio || {}, Module));
 
 
 

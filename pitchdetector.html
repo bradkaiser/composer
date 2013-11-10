@@ -34,19 +34,13 @@
 
     <div id="recordButton">Record Button</div>
 
-    <div id="pcm" class="graph-holder">
-        <h2>PCM</h2>
-    </div> 
-    <div id="fft" class="graph-holder">
-        <h2>FFT</h2>
-    </div> 
-
     <div id="music-holder"></div>
 
 </body>
 
 <script src="http://d3js.org/d3.v3.min.js" charset="utf-8"></script>
 <script src="js/lib/dsp.js" type="text/javascript"></script>
+<script src="js/lib/dywapitch.js"></script>
 <script src="js/BarGraph.js" type="text/javascript"></script>
 <script src="js/NoteDetector.js" type="text/javascript"></script>
 <script src="js/Microphone.js"></script>
@@ -58,9 +52,6 @@
 <script src="js/BarManager.js"></script>
 <script src="js/BarManager.js"></script>
 <script type="text/javascript">
-
-var pcmGraph = new BarGraph('#pcm', .1);
-var fftGraph = new BarGraph('#fft', .01);
 
 var el = document.getElementById('recordButton');
 var bufferSize = 2048;
