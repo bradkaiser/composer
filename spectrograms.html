@@ -149,16 +149,17 @@ function success(e) {
         cepstrumGraph.update(cepstrumFft.spectrum);
 
         //dywapitch
-        var highRaw = raw.evalMap(function(x) { return x * 1000; });
-        var raw64 = new Float64Array(highRaw);
-        var bufferPtr = Module._malloc(raw64.BYTES_PER_ELEMENT * raw64.length);
-        Module.HEAPU8.set(raw64, bufferPtr);
+        var raw64 = new Float64Array(raw);
+        var rawNumBytes = raw64.BYTES_PER_ELEMENT * raw64.length;
+        var rawPtr = Module._malloc(rawNumBytes);
+        var heapBytes = new Uint8Array(Module.HEAPU8.buffer, rawPtr, rawNumBytes);
+        heapBytes.set(new Uint8Array(raw64.buffer));
         //var result = Module._dywapitch_computepitch(trackerPtr, bufferPtr, 0, raw64.length);
-        var result = computePitch(trackerPtr, bufferPtr, 0, raw64.length);
-        console.log(result);
-        console.log(Module.getValue(trackerPtr, 'double'));
-        console.log(Module.getValue(trackerPtr + 8, 'i32'));
-        Module._free(bufferPtr);
+        var result = computePitch(trackerPtr, rawPtr, 0, raw64.length);
+        var prevPitch = Module.getValue(trackerPtr, 'double');
+        var confidence = Module.getValue(trackerPtr + 8, 'i8');
+        console.log(result + " " + confidence + " " + prevPitch);
+        Module._free(rawPtr);
     }
 
     audioInput.connect(volume);

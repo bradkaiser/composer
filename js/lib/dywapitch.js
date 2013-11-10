@@ -1,4 +1,4 @@
-// Note: For maximum-speed code, see "Optimizing Code" on the Emscripten wiki, https://github.com/kripken/emscripten/wiki/Optimizing-Code
+// Note: Some Emscripten settings will significantly limit the speed of the generated code.
 // Note: Some Emscripten settings may limit the speed of the generated code.
 // The Module object: Our interface to the outside world. We import
 // and export values on it, and do the work to get that through
@@ -348,25 +348,24 @@ var Runtime = {
   },
   dynCall: function (sig, ptr, args) {
     if (args && args.length) {
-      if (!args.splice) args = Array.prototype.slice.call(args);
-      args.splice(0, 0, ptr);
-      return Module['dynCall_' + sig].apply(null, args);
+      assert(args.length == sig.length-1);
+      return FUNCTION_TABLE[ptr].apply(null, args);
     } else {
-      return Module['dynCall_' + sig].call(null, ptr);
+      assert(sig.length == 1);
+      return FUNCTION_TABLE[ptr]();
     }
   },
-  functionPointers: [],
   addFunction: function (func) {
-    for (var i = 0; i < Runtime.functionPointers.length; i++) {
-      if (!Runtime.functionPointers[i]) {
-        Runtime.functionPointers[i] = func;
-        return 2*(1 + i);
-      }
-    }
-    throw 'Finished up all reserved function pointers. Use a higher value for RESERVED_FUNCTION_POINTERS.';
+    var table = FUNCTION_TABLE;
+    var ret = table.length;
+    assert(ret % 2 === 0);
+    table.push(func);
+    for (var i = 0; i < 2-1; i++) table.push(0);
+    return ret;
   },
   removeFunction: function (index) {
-    Runtime.functionPointers[(index-2)/2] = null;
+    var table = FUNCTION_TABLE;
+    table[index] = null;
   },
   warnOnce: function (text) {
     if (!Runtime.warnOnce.shown) Runtime.warnOnce.shown = {};
@@ -438,11 +437,11 @@ var Runtime = {
       return ret;
     }
   },
-  stackAlloc: function (size) { var ret = STACKTOP;STACKTOP = (STACKTOP + size)|0;STACKTOP = (((STACKTOP)+7)&-8); return ret; },
-  staticAlloc: function (size) { var ret = STATICTOP;STATICTOP = (STATICTOP + size)|0;STATICTOP = (((STATICTOP)+7)&-8); return ret; },
-  dynamicAlloc: function (size) { var ret = DYNAMICTOP;DYNAMICTOP = (DYNAMICTOP + size)|0;DYNAMICTOP = (((DYNAMICTOP)+7)&-8); if (DYNAMICTOP >= TOTAL_MEMORY) enlargeMemory();; return ret; },
+  stackAlloc: function (size) { var ret = STACKTOP;STACKTOP = (STACKTOP + size)|0;STACKTOP = (((STACKTOP)+7)&-8);(assert((STACKTOP|0) < (STACK_MAX|0))|0); return ret; },
+  staticAlloc: function (size) { var ret = STATICTOP;STATICTOP = (STATICTOP + (assert(!staticSealed),size))|0;STATICTOP = (((STATICTOP)+7)&-8); return ret; },
+  dynamicAlloc: function (size) { var ret = DYNAMICTOP;DYNAMICTOP = (DYNAMICTOP + (assert(DYNAMICTOP > 0),size))|0;DYNAMICTOP = (((DYNAMICTOP)+7)&-8); if (DYNAMICTOP >= TOTAL_MEMORY) enlargeMemory();; return ret; },
   alignMemory: function (size,quantum) { var ret = size = Math.ceil((size)/(quantum ? quantum : 8))*(quantum ? quantum : 8); return ret; },
-  makeBigInt: function (low,high,unsigned) { var ret = (unsigned ? ((+((low>>>0)))+((+((high>>>0)))*(+4294967296))) : ((+((low>>>0)))+((+((high|0)))*(+4294967296)))); return ret; },
+  makeBigInt: function (low,high,unsigned) { var ret = (unsigned ? ((low>>>0)+((high>>>0)*4294967296)) : ((low>>>0)+((high|0)*4294967296))); return ret; },
   GLOBAL_BASE: 8,
   QUANTUM_SIZE: 4,
   __dummy__: 0
@@ -451,6 +450,8 @@ var Runtime = {
 // Runtime essentials
 //========================================
 var __THREW__ = 0; // Used in checking for thrown exceptions.
+var setjmpId = 1; // Used in setjmp/longjmp
+var setjmpLabels = {};
 var ABORT = false; // whether we are quitting the application. no code should run after this. set in exit() and abort()
 var EXITSTATUS = 0;
 var undef = 0;
@@ -558,7 +559,7 @@ function setValue(ptr, value, type, noSafe) {
       case 'i8': HEAP8[(ptr)]=value; break;
       case 'i16': HEAP16[((ptr)>>1)]=value; break;
       case 'i32': HEAP32[((ptr)>>2)]=value; break;
-      case 'i64': (tempI64 = [value>>>0,(tempDouble=value,(+(Math_abs(tempDouble))) >= (+1) ? (tempDouble > (+0) ? ((Math_min((+(Math_floor((tempDouble)/(+4294967296)))), (+4294967295)))|0)>>>0 : (~~((+(Math_ceil((tempDouble - +(((~~(tempDouble)))>>>0))/(+4294967296))))))>>>0) : 0)],HEAP32[((ptr)>>2)]=tempI64[0],HEAP32[(((ptr)+(4))>>2)]=tempI64[1]); break;
+      case 'i64': (tempI64 = [value>>>0,(tempDouble=value,Math_abs(tempDouble) >= 1 ? (tempDouble > 0 ? Math_min(Math_floor((tempDouble)/4294967296), 4294967295)>>>0 : (~~(Math_ceil((tempDouble - +(((~~(tempDouble)))>>>0))/4294967296)))>>>0) : 0)],HEAP32[((ptr)>>2)]=tempI64[0],HEAP32[(((ptr)+(4))>>2)]=tempI64[1]); break;
       case 'float': HEAPF32[((ptr)>>2)]=value; break;
       case 'double': HEAPF64[((ptr)>>3)]=value; break;
       default: abort('invalid type for setValue: ' + type);
@@ -653,6 +654,7 @@ function allocate(slab, types, allocator, ptr) {
       i++;
       continue;
     }
+    assert(type, 'Must know what type to store in allocate!');
     if (type == 'i64') type = 'i32'; // special case: we have one i32 here, and one i32 later
     setValue(ret+i, curr, type);
     // no need to look up size unless type changes, so cache it
@@ -672,6 +674,7 @@ function Pointer_stringify(ptr, /* optional */ length) {
   var t;
   var i = 0;
   while (1) {
+    assert(ptr + i < TOTAL_MEMORY);
     t = HEAPU8[(((ptr)+(i))|0)];
     if (t >= 128) hasUtf = true;
     else if (t == 0 && !length) break;
@@ -693,6 +696,7 @@ function Pointer_stringify(ptr, /* optional */ length) {
   }
   var utf8 = new Runtime.UTF8Processor();
   for (i = 0; i < length; i++) {
+    assert(ptr + i < TOTAL_MEMORY);
     t = HEAPU8[(((ptr)+(i))|0)];
     ret += utf8.processCChar(t);
   }
@@ -911,7 +915,7 @@ var STATIC_BASE = 0, STATICTOP = 0, staticSealed = false; // static area
 var STACK_BASE = 0, STACKTOP = 0, STACK_MAX = 0; // stack area
 var DYNAMIC_BASE = 0, DYNAMICTOP = 0; // dynamic area handled by sbrk
 function enlargeMemory() {
-  abort('Cannot enlarge memory arrays in asm.js. Either (1) compile with -s TOTAL_MEMORY=X with X higher than the current value ' + TOTAL_MEMORY + ', or (2) set Module.TOTAL_MEMORY before the program runs.');
+  abort('Cannot enlarge memory arrays. Either (1) compile with -s TOTAL_MEMORY=X with X higher than the current value ' + TOTAL_MEMORY + ', (2) compile with ALLOW_MEMORY_GROWTH which adjusts the size at runtime but prevents some optimizations, or (3) set Module.TOTAL_MEMORY before the program runs.');
 }
 var TOTAL_STACK = Module['TOTAL_STACK'] || 5242880;
 var TOTAL_MEMORY = Module['TOTAL_MEMORY'] || 16777216;
@@ -1036,6 +1040,7 @@ function intArrayToString(array) {
   for (var i = 0; i < array.length; i++) {
     var chr = array[i];
     if (chr > 0xFF) {
+        assert(false, 'Character code ' + chr + ' (' + String.fromCharCode(chr) + ')  at offset ' + i + ' not in 0x00-0xFF.');
       chr &= 0xFF;
     }
     ret.push(String.fromCharCode(chr));
@@ -1062,6 +1067,7 @@ function writeArrayToMemory(array, buffer) {
 Module['writeArrayToMemory'] = writeArrayToMemory;
 function writeAsciiToMemory(str, buffer, dontAddNull) {
   for (var i = 0; i < str.length; i++) {
+    assert(str.charCodeAt(i) === str.charCodeAt(i)&0xff);
     HEAP8[(((buffer)+(i))|0)]=str.charCodeAt(i)
   }
   if (!dontAddNull) HEAP8[(((buffer)+(str.length))|0)]=0
@@ -1131,6 +1137,22 @@ function addRunDependency(id) {
   if (id) {
     assert(!runDependencyTracking[id]);
     runDependencyTracking[id] = 1;
+    if (runDependencyWatcher === null && typeof setInterval !== 'undefined') {
+      // Check for missing dependencies every few seconds
+      runDependencyWatcher = setInterval(function() {
+        var shown = false;
+        for (var dep in runDependencyTracking) {
+          if (!shown) {
+            shown = true;
+            Module.printErr('still waiting on run dependencies:');
+          }
+          Module.printErr('dependency: ' + dep);
+        }
+        if (shown) {
+          Module.printErr('(end of list)');
+        }
+      }, 10000);
+    }
   } else {
     Module.printErr('warning: run dependency added without ID');
   }
@@ -1168,6 +1190,8 @@ STATIC_BASE = 8;
 STATICTOP = STATIC_BASE + 496;
 /* global initializers */ __ATINIT__.push({ func: function() { runPostSets() } });
 /* no memory initializer */
+function runPostSets() {
+}
 var tempDoublePtr = Runtime.alignMemory(allocate(12, "i8", ALLOC_STATIC), 8);
 assert(tempDoublePtr % 8 == 0);
 function copyTempFloat(ptr) { // functions, because inlining this code increases code size too much
@@ -1186,9 +1210,62 @@ function copyTempDouble(ptr) {
   HEAP8[tempDoublePtr+6] = HEAP8[ptr+6];
   HEAP8[tempDoublePtr+7] = HEAP8[ptr+7];
 }
-  Module["_memcpy"] = _memcpy;var _llvm_memcpy_p0i8_p0i8_i32=_memcpy;
+  function _memcpy(dest, src, num) {
+      dest = dest|0; src = src|0; num = num|0;
+      var ret = 0;
+      ret = dest|0;
+      if ((dest&3) == (src&3)) {
+        while (dest & 3) {
+          if ((num|0) == 0) return ret|0;
+          HEAP8[(dest)]=HEAP8[(src)];
+          dest = (dest+1)|0;
+          src = (src+1)|0;
+          num = (num-1)|0;
+        }
+        while ((num|0) >= 4) {
+          HEAP32[((dest)>>2)]=HEAP32[((src)>>2)];
+          dest = (dest+4)|0;
+          src = (src+4)|0;
+          num = (num-4)|0;
+        }
+      }
+      while ((num|0) > 0) {
+        HEAP8[(dest)]=HEAP8[(src)];
+        dest = (dest+1)|0;
+        src = (src+1)|0;
+        num = (num-1)|0;
+      }
+      return ret|0;
+    }var _llvm_memcpy_p0i8_p0i8_i32=_memcpy;
   var _fabs=Math_abs;
-  Module["_memset"] = _memset;var _llvm_memset_p0i8_i32=_memset;
+  function _memset(ptr, value, num) {
+      ptr = ptr|0; value = value|0; num = num|0;
+      var stop = 0, value4 = 0, stop4 = 0, unaligned = 0;
+      stop = (ptr + num)|0;
+      if ((num|0) >= 20) {
+        // This is unaligned, but quite large, so work hard to get to aligned settings
+        value = value & 0xff;
+        unaligned = ptr & 3;
+        value4 = value | (value << 8) | (value << 16) | (value << 24);
+        stop4 = stop & ~3;
+        if (unaligned) {
+          unaligned = (ptr + 4 - unaligned)|0;
+          while ((ptr|0) < (unaligned|0)) { // no need to check for stop, since we have large num
+            HEAP8[(ptr)]=value;
+            ptr = (ptr+1)|0;
+          }
+        }
+        while ((ptr|0) < (stop4|0)) {
+          HEAP32[((ptr)>>2)]=value4;
+          ptr = (ptr+4)|0;
+        }
+      }
+      while ((ptr|0) < (stop|0)) {
+        HEAP8[(ptr)]=value;
+        ptr = (ptr+1)|0;
+      }
+    }var _llvm_memset_p0i8_i32=_memset;
+  var _abs=Math_abs;
   function _abort() {
       Module['abort']();
     }
@@ -1362,7 +1439,15 @@ function copyTempDouble(ptr) {
       }
       return ret;
     }
-  Module["_strlen"] = _strlen;
+  function _strlen(ptr) {
+      ptr = ptr|0;
+      var curr = 0;
+      curr = ptr;
+      while (HEAP8[(curr)]) {
+        curr = (curr + 1)|0;
+      }
+      return (curr - ptr)|0;
+    }
   var ERRNO_MESSAGES={0:"Success",1:"Not super-user",2:"No such file or directory",3:"No such process",4:"Interrupted system call",5:"I/O error",6:"No such device or address",7:"Arg list too long",8:"Exec format error",9:"Bad file number",10:"No children",11:"No more processes",12:"Not enough core",13:"Permission denied",14:"Bad address",15:"Block device required",16:"Mount device busy",17:"File exists",18:"Cross-device link",19:"No such device",20:"Not a directory",21:"Is a directory",22:"Invalid argument",23:"Too many open files in system",24:"Too many open files",25:"Not a typewriter",26:"Text file busy",27:"File too large",28:"No space left on device",29:"Illegal seek",30:"Read only file system",31:"Too many links",32:"Broken pipe",33:"Math arg out of domain of func",34:"Math result not representable",35:"File locking deadlock error",36:"File or path name too long",37:"No record locks available",38:"Function not implemented",39:"Directory not empty",40:"Too many symbolic links",42:"No message of desired type",43:"Identifier removed",44:"Channel number out of range",45:"Level 2 not synchronized",46:"Level 3 halted",47:"Level 3 reset",48:"Link number out of range",49:"Protocol driver not attached",50:"No CSI structure available",51:"Level 2 halted",52:"Invalid exchange",53:"Invalid request descriptor",54:"Exchange full",55:"No anode",56:"Invalid request code",57:"Invalid slot",59:"Bad font file fmt",60:"Device not a stream",61:"No data (for no delay io)",62:"Timer expired",63:"Out of streams resources",64:"Machine is not on the network",65:"Package not installed",66:"The object is remote",67:"The link has been severed",68:"Advertise error",69:"Srmount error",70:"Communication error on send",71:"Protocol error",72:"Multihop attempted",73:"Cross mount point (not really error)",74:"Trying to read unreadable message",75:"Value too large for defined data type",76:"Given log. name not unique",77:"f.d. invalid for this operation",78:"Remote address changed",79:"Can   access a needed shared lib",80:"Accessing a corrupted shared lib",81:".lib section in a.out corrupted",82:"Attempting to link in too many libs",83:"Attempting to exec a shared library",84:"Illegal byte sequence",86:"Streams pipe error",87:"Too many users",88:"Socket operation on non-socket",89:"Destination address required",90:"Message too long",91:"Protocol wrong type for socket",92:"Protocol not available",93:"Unknown protocol",94:"Socket type not supported",95:"Not supported",96:"Protocol family not supported",97:"Address family not supported by protocol family",98:"Address already in use",99:"Address not available",100:"Network interface is not configured",101:"Network is unreachable",102:"Connection reset by network",103:"Connection aborted",104:"Connection reset by peer",105:"No buffer space available",106:"Socket is already connected",107:"Socket is not connected",108:"Can't send after socket shutdown",109:"Too many references",110:"Connection timed out",111:"Connection refused",112:"Host is down",113:"Host is unreachable",114:"Socket already connected",115:"Connection already in progress",116:"Stale file handle",122:"Quota exceeded",123:"No medium (in tape drive)",125:"Operation canceled",130:"Previous owner died",131:"State not recoverable"};
   var TTY={ttys:[],init:function () {
         // https://github.com/kripken/emscripten/pull/1555
@@ -3638,6 +3723,7 @@ function copyTempDouble(ptr) {
             b = bb.getBlob();
           }
           var url = Browser.URLObject.createObjectURL(b);
+          assert(typeof url == 'string', 'createObjectURL must return a url as a string');
           var img = new Image();
           img.onload = function() {
             assert(img.complete, 'Image ' + name + ' could not be decoded');
@@ -3682,6 +3768,7 @@ function copyTempDouble(ptr) {
               return fail();
             }
             var url = Browser.URLObject.createObjectURL(b); // XXX we never revoke this!
+            assert(typeof url == 'string', 'createObjectURL must return a url as a string');
             var audio = new Audio();
             audio.addEventListener('canplaythrough', function() { finish(audio) }, false); // use addEventListener due to chromium bug 124926
             audio.onerror = function(event) {
@@ -4001,68 +4088,4484 @@ staticSealed = true; // seal the static portion of memory
 STACK_MAX = STACK_BASE + 5242880;
 DYNAMIC_BASE = DYNAMICTOP = Runtime.alignMemory(STACK_MAX);
 assert(DYNAMIC_BASE < TOTAL_MEMORY); // Stack must fit in TOTAL_MEMORY; allocations from here on may enlarge TOTAL_MEMORY
-var Math_min = Math.min;
-function invoke_ii(index,a1) {
-  try {
-    return Module["dynCall_ii"](index,a1);
-  } catch(e) {
-    if (typeof e !== 'number' && e !== 'longjmp') throw e;
-    asm["setThrew"](1, 0);
-  }
-}
-function invoke_v(index) {
-  try {
-    Module["dynCall_v"](index);
-  } catch(e) {
-    if (typeof e !== 'number' && e !== 'longjmp') throw e;
-    asm["setThrew"](1, 0);
-  }
-}
-function invoke_iii(index,a1,a2) {
-  try {
-    return Module["dynCall_iii"](index,a1,a2);
-  } catch(e) {
-    if (typeof e !== 'number' && e !== 'longjmp') throw e;
-    asm["setThrew"](1, 0);
-  }
-}
-function invoke_vi(index,a1) {
-  try {
-    Module["dynCall_vi"](index,a1);
-  } catch(e) {
-    if (typeof e !== 'number' && e !== 'longjmp') throw e;
-    asm["setThrew"](1, 0);
-  }
-}
-function asmPrintInt(x, y) {
-  Module.print('int ' + x + ',' + y);// + ' ' + new Error().stack);
-}
-function asmPrintFloat(x, y) {
-  Module.print('float ' + x + ',' + y);// + ' ' + new Error().stack);
-}
-// EMSCRIPTEN_START_ASM
-var asm=(function(global,env,buffer){"use asm";var a=new global.Int8Array(buffer);var b=new global.Int16Array(buffer);var c=new global.Int32Array(buffer);var d=new global.Uint8Array(buffer);var e=new global.Uint16Array(buffer);var f=new global.Uint32Array(buffer);var g=new global.Float32Array(buffer);var h=new global.Float64Array(buffer);var i=env.STACKTOP|0;var j=env.STACK_MAX|0;var k=env.tempDoublePtr|0;var l=env.ABORT|0;var m=+env.NaN;var n=+env.Infinity;var o=0;var p=0;var q=0;var r=0;var s=0,t=0,u=0,v=0,w=0.0,x=0,y=0,z=0,A=0.0;var B=0;var C=0;var D=0;var E=0;var F=0;var G=0;var H=0;var I=0;var J=0;var K=0;var L=global.Math.floor;var M=global.Math.abs;var N=global.Math.sqrt;var O=global.Math.pow;var P=global.Math.cos;var Q=global.Math.sin;var R=global.Math.tan;var S=global.Math.acos;var T=global.Math.asin;var U=global.Math.atan;var V=global.Math.atan2;var W=global.Math.exp;var X=global.Math.log;var Y=global.Math.ceil;var Z=global.Math.imul;var _=env.abort;var $=env.assert;var aa=env.asmPrintInt;var ab=env.asmPrintFloat;var ac=env.min;var ad=env.invoke_ii;var ae=env.invoke_v;var af=env.invoke_iii;var ag=env.invoke_vi;var ah=env._sysconf;var ai=env._sbrk;var aj=env._fabs;var ak=env.___setErrNo;var al=env.___errno_location;var am=env._abort;var an=env._time;var ao=env._fflush;
+var FUNCTION_TABLE = [0, 0];
 // EMSCRIPTEN_START_FUNCS
-function at(a){a=a|0;var b=0;b=i;i=i+a|0;i=i+7&-8;return b|0}function au(){return i|0}function av(a){a=a|0;i=a}function aw(a,b){a=a|0;b=b|0;if((o|0)==0){o=a;p=b}}function ax(b){b=b|0;a[k]=a[b];a[k+1|0]=a[b+1|0];a[k+2|0]=a[b+2|0];a[k+3|0]=a[b+3|0]}function ay(b){b=b|0;a[k]=a[b];a[k+1|0]=a[b+1|0];a[k+2|0]=a[b+2|0];a[k+3|0]=a[b+3|0];a[k+4|0]=a[b+4|0];a[k+5|0]=a[b+5|0];a[k+6|0]=a[b+6|0];a[k+7|0]=a[b+7|0]}function az(a){a=a|0;B=a}function aA(a){a=a|0;C=a}function aB(a){a=a|0;D=a}function aC(a){a=a|0;E=a}function aD(a){a=a|0;F=a}function aE(a){a=a|0;G=a}function aF(a){a=a|0;H=a}function aG(a){a=a|0;I=a}function aH(a){a=a|0;J=a}function aI(a){a=a|0;K=a}function aJ(){}function aK(a){a=a|0;var b=0;if((a|0)==1){b=a}else if((a|0)==2){b=a}else if((a|0)==0){b=0}else{return(aK(a>>1)|0)+1|0}return b|0}function aL(a,b,d){a=a|0;b=b|0;d=d|0;var e=0,f=0,g=0,i=0,j=0,k=0,l=0,m=0,n=0.0,o=0.0,p=0.0,q=0,r=0.0,s=0.0,t=0.0,u=0.0,v=0,w=0.0,x=0.0,y=0.0,z=0,A=0,B=0.0,C=0.0,D=0,E=0,F=0,G=0,H=0,I=0,J=0,K=0,L=0,N=0,O=0,P=0,Q=0,R=0,S=0,T=0,U=0,V=0,W=0,X=0,Y=0,_=0,$=0,aa=0,ab=0,ac=0,ad=0,ae=0,af=0,ag=0.0,ah=0.0,ai=0.0,aj=0.0,ak=0,al=0.0;e=d;while(1){if((e|0)==0|(e|0)==2){f=d;break}if((e&1|0)==0){e=e>>1}else{g=d;i=9;break}}if((i|0)==9){while(1){i=0;if((g|0)==0|(g|0)==2){j=d;break}if((g&1|0)==0){g=g>>1;i=9}else{i=11;break}}do{if((i|0)==11){if((d|0)==1){j=2;break}g=aK(d)|0;if((g|0)>0){k=0;l=1}else{j=1;break}while(1){e=l<<1;m=k+1|0;if((m|0)<(g|0)){k=m;l=e}else{j=e;break}}}}while(0);f=(j|0)/2|0}j=f<<3;l=aP(j)|0;k=l;d=a+(b<<3)|0;aR(l|0,d|0,j)|0;j=f<<2;d=aP(j)|0;b=d;a=aP(j)|0;g=a;e=aP(j)|0;m=e;if((f|0)>0){n=0.0;o=0.0;p=0.0;q=0;while(1){r=+h[k+(q<<3)>>3];s=n+r;t=r>o?r:o;u=r<p?r:p;v=q+1|0;if((v|0)<(f|0)){n=s;o=t;p=u;q=v}else{w=s;x=t;y=u;break}}}else{w=0.0;x=0.0;y=0.0}p=w/+(f|0);w=x-p;x=-0.0-(y-p);y=(w>x?w:x)*.75;x=-1.0;q=0;v=f;L25:while(1){if((q|0)>0){z=1;A=0;do{z=z<<1;A=A+1|0;}while((A|0)<(q|0));B=+(z|0)*3.0e3}else{B=3.0e3}A=~~(44100.0/B);if((v|0)<2){C=0.0;i=76;break}if((v|0)>2){D=0;E=0;F=2;w=-1.0e3;G=-1e6;H=-1e6;I=0;J=0;o=+h[l+8>>3];while(1){n=+h[k+(F<<3)>>3];u=n-p;t=o-p;K=t<=0.0&u>0.0?1:I;L=t>=0.0&u<0.0?1:J;s=u-t;do{if(w>-1.0e3){do{if(w>=0.0|(L|0)==0|s<0.0){N=L;O=G;P=E}else{if(+M(+u)<y){N=L;O=G;P=E;break}if((F|0)<=(G+A|0)){N=L;O=G;P=E;break}c[g+(E<<2)>>2]=F;N=0;O=F;P=E+1|0}}while(0);if(w<=0.0|(K|0)==0|s>0.0){Q=N;R=K;S=H;T=O;U=P;V=D;break}if(+M(+u)<y){Q=N;R=K;S=H;T=O;U=P;V=D;break}if((F|0)<=(H+A|0)){Q=N;R=K;S=H;T=O;U=P;V=D;break}c[m+(D<<2)>>2]=F;Q=N;R=0;S=F;T=O;U=P;V=D+1|0}else{Q=L;R=K;S=H;T=G;U=E;V=D}}while(0);K=F+1|0;if((K|0)<(v|0)){D=V;E=U;F=K;w=s;G=T;H=S;I=R;J=Q;o=n}else{W=V;X=U;break}}}else{W=0;X=0}if((X|W|0)==0){C=0.0;i=77;break}aS(d|0,0,j|0);if((X|0)>0){J=0;while(1){I=g+(J<<2)|0;H=J+1|0;G=(H|0)<(X|0);if(G){F=(c[I>>2]|0)-(c[g+(H<<2)>>2]|0)|0;E=b+(((F|0)>-1?F:-F|0)<<2)|0;c[E>>2]=(c[E>>2]|0)+1}E=J+2|0;if((E|0)<(X|0)){F=(c[I>>2]|0)-(c[g+(E<<2)>>2]|0)|0;E=b+(((F|0)>-1?F:-F|0)<<2)|0;c[E>>2]=(c[E>>2]|0)+1}if(G){J=H}else{break}}}if((W|0)>0){J=0;while(1){H=m+(J<<2)|0;G=J+1|0;E=(G|0)<(W|0);if(E){F=(c[H>>2]|0)-(c[m+(G<<2)>>2]|0)|0;I=b+(((F|0)>-1?F:-F|0)<<2)|0;c[I>>2]=(c[I>>2]|0)+1}I=J+2|0;if((I|0)<(W|0)){F=(c[H>>2]|0)-(c[m+(I<<2)>>2]|0)|0;I=b+(((F|0)>-1?F:-F|0)<<2)|0;c[I>>2]=(c[I>>2]|0)+1}if(E){J=G}else{break}}}J=-A|0;L70:do{if((v|0)>0){if((A|0)<(J|0)){G=0;E=-1;I=-1;while(1){if((I|0)==0){Y=0;_=(G|0)==(E<<1|0)?G:E}else{F=(I|0)<0;Y=F?0:I;_=F?G:E}F=G+1|0;if((F|0)<(v|0)){G=F;E=_;I=Y}else{$=_;break L70}}}else{aa=0;ab=-1;ac=-1}while(1){I=J;E=0;while(1){G=I+aa|0;if((G|0)>-1&(G|0)<(v|0)){ad=(c[b+(G<<2)>>2]|0)+E|0}else{ad=E}G=I+1|0;if((G|0)>(A|0)){break}else{I=G;E=ad}}if((ad|0)==(ac|0)){ae=ac;af=(aa|0)==(ab<<1|0)?aa:ab}else{E=(ad|0)>(ac|0);ae=E?ad:ac;af=E?aa:ab}E=aa+1|0;if((E|0)<(v|0)){aa=E;ab=af;ac=ae}else{$=af;break}}}else{$=-1}}while(0);if((A|0)<(J|0)){ag=0.0;ah=0.0}else{E=J;n=0.0;s=0.0;while(1){I=E+$|0;do{if((I|0)>-1&(I|0)<(f|0)){G=c[b+(I<<2)>>2]|0;if((G|0)<=0){ai=s;aj=n;break}ai=s+ +(G|0);aj=n+ +(Z(G,I)|0)}else{ai=s;aj=n}}while(0);I=E+1|0;if((I|0)>(A|0)){ag=aj;ah=ai;break}else{E=I;n=aj;s=ai}}}s=ag/ah;if(x>-1.0){if(+M(+(s*2.0-x))<=+(A<<1|0)){i=64;break}}E=q+1|0;if((E|0)>5){C=0.0;i=79;break}J=(v|0)/2|0;if((v|0)>1){ak=0}else{x=s;q=E;v=J;continue}while(1){I=ak<<1;h[k+(ak<<3)>>3]=(+h[k+(I<<3)>>3]+ +h[k+((I|1)<<3)>>3])*.5;I=ak+1|0;if((I|0)<(J|0)){ak=I}else{x=s;q=E;v=J;continue L25}}}if((i|0)==64){v=q-1|0;if((v|0)>0){q=1;ak=0;do{q=q<<1;ak=ak+1|0;}while((ak|0)<(v|0));al=+(q|0)}else{al=1.0}C=44100.0/(x*al);aQ(d);aQ(a);aQ(e);aQ(l);return+C}else if((i|0)==76){aQ(d);aQ(a);aQ(e);aQ(l);return+C}else if((i|0)==77){aQ(d);aQ(a);aQ(e);aQ(l);return+C}else if((i|0)==79){aQ(d);aQ(a);aQ(e);aQ(l);return+C}return 0.0}function aM(a,b){a=a|0;b=+b;var d=0.0,e=0,f=0.0,g=0,i=0,j=0,k=0,l=0.0,m=0,n=0;d=b==0.0?-1.0:b;e=a|0;b=+h[e>>3];L118:do{if(d!=-1.0){if(b==-1.0){h[e>>3]=d;c[a+8>>2]=1;f=d;g=1;break}i=~~(b-d);if(+(((i|0)>-1?i:-i|0)|0)/d<.20000000298023224){h[e>>3]=d;i=a+8|0;j=(c[i>>2]|0)+1|0;k=(j|0)>5?5:j;c[i>>2]=k;f=d;g=k;break}k=a+8|0;i=c[k>>2]|0;do{if((i|0)>2){l=d*2.0;j=~~(b-l);if(+(((j|0)>-1?j:-j|0)|0)/l<.20000000298023224){h[e>>3]=l;f=l;g=i;break L118}l=d*.5;j=~~(b-l);if(+(((j|0)>-1?j:-j|0)|0)/l>=.20000000298023224){break}h[e>>3]=l;f=l;g=i;break L118}}while(0);if((i|0)>0){j=i-1|0;m=(j|0)<0?0:j;c[k>>2]=m;f=b;g=m;break}else{h[e>>3]=d;c[k>>2]=1;f=d;g=1;break}}else{m=a+8|0;j=c[m>>2]|0;if(b==-1.0){f=-1.0;g=j;break}if((j|0)>0){n=j-1|0;j=(n|0)<0?0:n;c[m>>2]=j;f=b;g=j;break}else{h[e>>3]=-1.0;c[m>>2]=0;f=-1.0;g=0;break}}}while(0);b=(g|0)>0?f:-1.0;return+(b==-1.0?0.0:b)}function aN(a){a=a|0;h[a>>3]=-1.0;c[a+8>>2]=-1;return}function aO(a,b,c,d){a=a|0;b=b|0;c=c|0;d=d|0;return+(+aM(a,+aL(b,c,d)))}function aP(a){a=a|0;var b=0,d=0,e=0,f=0,g=0,h=0,i=0,j=0,k=0,l=0,m=0,n=0,o=0,p=0,q=0,r=0,s=0,t=0,u=0,v=0,w=0,x=0,y=0,z=0,A=0,B=0,C=0,D=0,E=0,F=0,G=0,H=0,I=0,J=0,K=0,L=0,M=0,N=0,O=0,P=0,Q=0,R=0,S=0,T=0,U=0,V=0,W=0,X=0,Y=0,Z=0,_=0,$=0,aa=0,ab=0,ac=0,ad=0,ae=0,af=0,ag=0,aj=0,ak=0,ao=0,ap=0,aq=0,ar=0,as=0,at=0,au=0,av=0,aw=0,ax=0,ay=0,az=0,aA=0,aB=0,aC=0,aD=0,aE=0,aF=0,aG=0,aH=0,aI=0,aJ=0,aK=0,aL=0;do{if(a>>>0<245){if(a>>>0<11){b=16}else{b=a+11&-8}d=b>>>3;e=c[8]|0;f=e>>>(d>>>0);if((f&3|0)!=0){g=(f&1^1)+d|0;h=g<<1;i=72+(h<<2)|0;j=72+(h+2<<2)|0;h=c[j>>2]|0;k=h+8|0;l=c[k>>2]|0;do{if((i|0)==(l|0)){c[8]=e&~(1<<g)}else{if(l>>>0<(c[12]|0)>>>0){am();return 0}m=l+12|0;if((c[m>>2]|0)==(h|0)){c[m>>2]=i;c[j>>2]=l;break}else{am();return 0}}}while(0);l=g<<3;c[h+4>>2]=l|3;j=h+(l|4)|0;c[j>>2]=c[j>>2]|1;n=k;return n|0}if(b>>>0<=(c[10]|0)>>>0){o=b;break}if((f|0)!=0){j=2<<d;l=f<<d&(j|-j);j=(l&-l)-1|0;l=j>>>12&16;i=j>>>(l>>>0);j=i>>>5&8;m=i>>>(j>>>0);i=m>>>2&4;p=m>>>(i>>>0);m=p>>>1&2;q=p>>>(m>>>0);p=q>>>1&1;r=(j|l|i|m|p)+(q>>>(p>>>0))|0;p=r<<1;q=72+(p<<2)|0;m=72+(p+2<<2)|0;p=c[m>>2]|0;i=p+8|0;l=c[i>>2]|0;do{if((q|0)==(l|0)){c[8]=e&~(1<<r)}else{if(l>>>0<(c[12]|0)>>>0){am();return 0}j=l+12|0;if((c[j>>2]|0)==(p|0)){c[j>>2]=q;c[m>>2]=l;break}else{am();return 0}}}while(0);l=r<<3;m=l-b|0;c[p+4>>2]=b|3;q=p;e=q+b|0;c[q+(b|4)>>2]=m|1;c[q+l>>2]=m;l=c[10]|0;if((l|0)!=0){q=c[13]|0;d=l>>>3;l=d<<1;f=72+(l<<2)|0;k=c[8]|0;h=1<<d;do{if((k&h|0)==0){c[8]=k|h;s=f;t=72+(l+2<<2)|0}else{d=72+(l+2<<2)|0;g=c[d>>2]|0;if(g>>>0>=(c[12]|0)>>>0){s=g;t=d;break}am();return 0}}while(0);c[t>>2]=q;c[s+12>>2]=q;c[q+8>>2]=s;c[q+12>>2]=f}c[10]=m;c[13]=e;n=i;return n|0}l=c[9]|0;if((l|0)==0){o=b;break}h=(l&-l)-1|0;l=h>>>12&16;k=h>>>(l>>>0);h=k>>>5&8;p=k>>>(h>>>0);k=p>>>2&4;r=p>>>(k>>>0);p=r>>>1&2;d=r>>>(p>>>0);r=d>>>1&1;g=c[336+((h|l|k|p|r)+(d>>>(r>>>0))<<2)>>2]|0;r=g;d=g;p=(c[g+4>>2]&-8)-b|0;while(1){g=c[r+16>>2]|0;if((g|0)==0){k=c[r+20>>2]|0;if((k|0)==0){break}else{u=k}}else{u=g}g=(c[u+4>>2]&-8)-b|0;k=g>>>0<p>>>0;r=u;d=k?u:d;p=k?g:p}r=d;i=c[12]|0;if(r>>>0<i>>>0){am();return 0}e=r+b|0;m=e;if(r>>>0>=e>>>0){am();return 0}e=c[d+24>>2]|0;f=c[d+12>>2]|0;do{if((f|0)==(d|0)){q=d+20|0;g=c[q>>2]|0;if((g|0)==0){k=d+16|0;l=c[k>>2]|0;if((l|0)==0){v=0;break}else{w=l;x=k}}else{w=g;x=q}while(1){q=w+20|0;g=c[q>>2]|0;if((g|0)!=0){w=g;x=q;continue}q=w+16|0;g=c[q>>2]|0;if((g|0)==0){break}else{w=g;x=q}}if(x>>>0<i>>>0){am();return 0}else{c[x>>2]=0;v=w;break}}else{q=c[d+8>>2]|0;if(q>>>0<i>>>0){am();return 0}g=q+12|0;if((c[g>>2]|0)!=(d|0)){am();return 0}k=f+8|0;if((c[k>>2]|0)==(d|0)){c[g>>2]=f;c[k>>2]=q;v=f;break}else{am();return 0}}}while(0);L222:do{if((e|0)!=0){f=d+28|0;i=336+(c[f>>2]<<2)|0;do{if((d|0)==(c[i>>2]|0)){c[i>>2]=v;if((v|0)!=0){break}c[9]=c[9]&~(1<<c[f>>2]);break L222}else{if(e>>>0<(c[12]|0)>>>0){am();return 0}q=e+16|0;if((c[q>>2]|0)==(d|0)){c[q>>2]=v}else{c[e+20>>2]=v}if((v|0)==0){break L222}}}while(0);if(v>>>0<(c[12]|0)>>>0){am();return 0}c[v+24>>2]=e;f=c[d+16>>2]|0;do{if((f|0)!=0){if(f>>>0<(c[12]|0)>>>0){am();return 0}else{c[v+16>>2]=f;c[f+24>>2]=v;break}}}while(0);f=c[d+20>>2]|0;if((f|0)==0){break}if(f>>>0<(c[12]|0)>>>0){am();return 0}else{c[v+20>>2]=f;c[f+24>>2]=v;break}}}while(0);if(p>>>0<16){e=p+b|0;c[d+4>>2]=e|3;f=r+(e+4)|0;c[f>>2]=c[f>>2]|1}else{c[d+4>>2]=b|3;c[r+(b|4)>>2]=p|1;c[r+(p+b)>>2]=p;f=c[10]|0;if((f|0)!=0){e=c[13]|0;i=f>>>3;f=i<<1;q=72+(f<<2)|0;k=c[8]|0;g=1<<i;do{if((k&g|0)==0){c[8]=k|g;y=q;z=72+(f+2<<2)|0}else{i=72+(f+2<<2)|0;l=c[i>>2]|0;if(l>>>0>=(c[12]|0)>>>0){y=l;z=i;break}am();return 0}}while(0);c[z>>2]=e;c[y+12>>2]=e;c[e+8>>2]=y;c[e+12>>2]=q}c[10]=p;c[13]=m}f=d+8|0;if((f|0)==0){o=b;break}else{n=f}return n|0}else{if(a>>>0>4294967231){o=-1;break}f=a+11|0;g=f&-8;k=c[9]|0;if((k|0)==0){o=g;break}r=-g|0;i=f>>>8;do{if((i|0)==0){A=0}else{if(g>>>0>16777215){A=31;break}f=(i+1048320|0)>>>16&8;l=i<<f;h=(l+520192|0)>>>16&4;j=l<<h;l=(j+245760|0)>>>16&2;B=14-(h|f|l)+(j<<l>>>15)|0;A=g>>>((B+7|0)>>>0)&1|B<<1}}while(0);i=c[336+(A<<2)>>2]|0;L270:do{if((i|0)==0){C=0;D=r;E=0}else{if((A|0)==31){F=0}else{F=25-(A>>>1)|0}d=0;m=r;p=i;q=g<<F;e=0;while(1){B=c[p+4>>2]&-8;l=B-g|0;if(l>>>0<m>>>0){if((B|0)==(g|0)){C=p;D=l;E=p;break L270}else{G=p;H=l}}else{G=d;H=m}l=c[p+20>>2]|0;B=c[p+16+(q>>>31<<2)>>2]|0;j=(l|0)==0|(l|0)==(B|0)?e:l;if((B|0)==0){C=G;D=H;E=j;break}else{d=G;m=H;p=B;q=q<<1;e=j}}}}while(0);if((E|0)==0&(C|0)==0){i=2<<A;r=k&(i|-i);if((r|0)==0){o=g;break}i=(r&-r)-1|0;r=i>>>12&16;e=i>>>(r>>>0);i=e>>>5&8;q=e>>>(i>>>0);e=q>>>2&4;p=q>>>(e>>>0);q=p>>>1&2;m=p>>>(q>>>0);p=m>>>1&1;I=c[336+((i|r|e|q|p)+(m>>>(p>>>0))<<2)>>2]|0}else{I=E}if((I|0)==0){J=D;K=C}else{p=I;m=D;q=C;while(1){e=(c[p+4>>2]&-8)-g|0;r=e>>>0<m>>>0;i=r?e:m;e=r?p:q;r=c[p+16>>2]|0;if((r|0)!=0){p=r;m=i;q=e;continue}r=c[p+20>>2]|0;if((r|0)==0){J=i;K=e;break}else{p=r;m=i;q=e}}}if((K|0)==0){o=g;break}if(J>>>0>=((c[10]|0)-g|0)>>>0){o=g;break}q=K;m=c[12]|0;if(q>>>0<m>>>0){am();return 0}p=q+g|0;k=p;if(q>>>0>=p>>>0){am();return 0}e=c[K+24>>2]|0;i=c[K+12>>2]|0;do{if((i|0)==(K|0)){r=K+20|0;d=c[r>>2]|0;if((d|0)==0){j=K+16|0;B=c[j>>2]|0;if((B|0)==0){L=0;break}else{M=B;N=j}}else{M=d;N=r}while(1){r=M+20|0;d=c[r>>2]|0;if((d|0)!=0){M=d;N=r;continue}r=M+16|0;d=c[r>>2]|0;if((d|0)==0){break}else{M=d;N=r}}if(N>>>0<m>>>0){am();return 0}else{c[N>>2]=0;L=M;break}}else{r=c[K+8>>2]|0;if(r>>>0<m>>>0){am();return 0}d=r+12|0;if((c[d>>2]|0)!=(K|0)){am();return 0}j=i+8|0;if((c[j>>2]|0)==(K|0)){c[d>>2]=i;c[j>>2]=r;L=i;break}else{am();return 0}}}while(0);L320:do{if((e|0)!=0){i=K+28|0;m=336+(c[i>>2]<<2)|0;do{if((K|0)==(c[m>>2]|0)){c[m>>2]=L;if((L|0)!=0){break}c[9]=c[9]&~(1<<c[i>>2]);break L320}else{if(e>>>0<(c[12]|0)>>>0){am();return 0}r=e+16|0;if((c[r>>2]|0)==(K|0)){c[r>>2]=L}else{c[e+20>>2]=L}if((L|0)==0){break L320}}}while(0);if(L>>>0<(c[12]|0)>>>0){am();return 0}c[L+24>>2]=e;i=c[K+16>>2]|0;do{if((i|0)!=0){if(i>>>0<(c[12]|0)>>>0){am();return 0}else{c[L+16>>2]=i;c[i+24>>2]=L;break}}}while(0);i=c[K+20>>2]|0;if((i|0)==0){break}if(i>>>0<(c[12]|0)>>>0){am();return 0}else{c[L+20>>2]=i;c[i+24>>2]=L;break}}}while(0);do{if(J>>>0<16){e=J+g|0;c[K+4>>2]=e|3;i=q+(e+4)|0;c[i>>2]=c[i>>2]|1}else{c[K+4>>2]=g|3;c[q+(g|4)>>2]=J|1;c[q+(J+g)>>2]=J;i=J>>>3;if(J>>>0<256){e=i<<1;m=72+(e<<2)|0;r=c[8]|0;j=1<<i;do{if((r&j|0)==0){c[8]=r|j;O=m;P=72+(e+2<<2)|0}else{i=72+(e+2<<2)|0;d=c[i>>2]|0;if(d>>>0>=(c[12]|0)>>>0){O=d;P=i;break}am();return 0}}while(0);c[P>>2]=k;c[O+12>>2]=k;c[q+(g+8)>>2]=O;c[q+(g+12)>>2]=m;break}e=p;j=J>>>8;do{if((j|0)==0){Q=0}else{if(J>>>0>16777215){Q=31;break}r=(j+1048320|0)>>>16&8;i=j<<r;d=(i+520192|0)>>>16&4;B=i<<d;i=(B+245760|0)>>>16&2;l=14-(d|r|i)+(B<<i>>>15)|0;Q=J>>>((l+7|0)>>>0)&1|l<<1}}while(0);j=336+(Q<<2)|0;c[q+(g+28)>>2]=Q;c[q+(g+20)>>2]=0;c[q+(g+16)>>2]=0;m=c[9]|0;l=1<<Q;if((m&l|0)==0){c[9]=m|l;c[j>>2]=e;c[q+(g+24)>>2]=j;c[q+(g+12)>>2]=e;c[q+(g+8)>>2]=e;break}if((Q|0)==31){R=0}else{R=25-(Q>>>1)|0}l=J<<R;m=c[j>>2]|0;while(1){if((c[m+4>>2]&-8|0)==(J|0)){break}S=m+16+(l>>>31<<2)|0;j=c[S>>2]|0;if((j|0)==0){T=250;break}else{l=l<<1;m=j}}if((T|0)==250){if(S>>>0<(c[12]|0)>>>0){am();return 0}else{c[S>>2]=e;c[q+(g+24)>>2]=m;c[q+(g+12)>>2]=e;c[q+(g+8)>>2]=e;break}}l=m+8|0;j=c[l>>2]|0;i=c[12]|0;if(m>>>0<i>>>0){am();return 0}if(j>>>0<i>>>0){am();return 0}else{c[j+12>>2]=e;c[l>>2]=e;c[q+(g+8)>>2]=j;c[q+(g+12)>>2]=m;c[q+(g+24)>>2]=0;break}}}while(0);q=K+8|0;if((q|0)==0){o=g;break}else{n=q}return n|0}}while(0);K=c[10]|0;if(o>>>0<=K>>>0){S=K-o|0;J=c[13]|0;if(S>>>0>15){R=J;c[13]=R+o;c[10]=S;c[R+(o+4)>>2]=S|1;c[R+K>>2]=S;c[J+4>>2]=o|3}else{c[10]=0;c[13]=0;c[J+4>>2]=K|3;S=J+(K+4)|0;c[S>>2]=c[S>>2]|1}n=J+8|0;return n|0}J=c[11]|0;if(o>>>0<J>>>0){S=J-o|0;c[11]=S;J=c[14]|0;K=J;c[14]=K+o;c[K+(o+4)>>2]=S|1;c[J+4>>2]=o|3;n=J+8|0;return n|0}do{if((c[2]|0)==0){J=ah(30)|0;if((J-1&J|0)==0){c[4]=J;c[3]=J;c[5]=-1;c[6]=-1;c[7]=0;c[119]=0;c[2]=(an(0)|0)&-16^1431655768;break}else{am();return 0}}}while(0);J=o+48|0;S=c[4]|0;K=o+47|0;R=S+K|0;Q=-S|0;S=R&Q;if(S>>>0<=o>>>0){n=0;return n|0}O=c[118]|0;do{if((O|0)!=0){P=c[116]|0;L=P+S|0;if(L>>>0<=P>>>0|L>>>0>O>>>0){n=0}else{break}return n|0}}while(0);L412:do{if((c[119]&4|0)==0){O=c[14]|0;L414:do{if((O|0)==0){T=280}else{L=O;P=480;while(1){U=P|0;M=c[U>>2]|0;if(M>>>0<=L>>>0){V=P+4|0;if((M+(c[V>>2]|0)|0)>>>0>L>>>0){break}}M=c[P+8>>2]|0;if((M|0)==0){T=280;break L414}else{P=M}}if((P|0)==0){T=280;break}L=R-(c[11]|0)&Q;if(L>>>0>=2147483647){W=0;break}m=ai(L|0)|0;e=(m|0)==((c[U>>2]|0)+(c[V>>2]|0)|0);X=e?m:-1;Y=e?L:0;Z=m;_=L;T=289}}while(0);do{if((T|0)==280){O=ai(0)|0;if((O|0)==-1){W=0;break}g=O;L=c[3]|0;m=L-1|0;if((m&g|0)==0){$=S}else{$=S-g+(m+g&-L)|0}L=c[116]|0;g=L+$|0;if(!($>>>0>o>>>0&$>>>0<2147483647)){W=0;break}m=c[118]|0;if((m|0)!=0){if(g>>>0<=L>>>0|g>>>0>m>>>0){W=0;break}}m=ai($|0)|0;g=(m|0)==(O|0);X=g?O:-1;Y=g?$:0;Z=m;_=$;T=289}}while(0);L434:do{if((T|0)==289){m=-_|0;if((X|0)!=-1){aa=Y;ab=X;T=300;break L412}do{if((Z|0)!=-1&_>>>0<2147483647&_>>>0<J>>>0){g=c[4]|0;O=K-_+g&-g;if(O>>>0>=2147483647){ac=_;break}if((ai(O|0)|0)==-1){ai(m|0)|0;W=Y;break L434}else{ac=O+_|0;break}}else{ac=_}}while(0);if((Z|0)==-1){W=Y}else{aa=ac;ab=Z;T=300;break L412}}}while(0);c[119]=c[119]|4;ad=W;T=297}else{ad=0;T=297}}while(0);do{if((T|0)==297){if(S>>>0>=2147483647){break}W=ai(S|0)|0;Z=ai(0)|0;if(!((Z|0)!=-1&(W|0)!=-1&W>>>0<Z>>>0)){break}ac=Z-W|0;Z=ac>>>0>(o+40|0)>>>0;Y=Z?W:-1;if((Y|0)!=-1){aa=Z?ac:ad;ab=Y;T=300}}}while(0);do{if((T|0)==300){ad=(c[116]|0)+aa|0;c[116]=ad;if(ad>>>0>(c[117]|0)>>>0){c[117]=ad}ad=c[14]|0;L454:do{if((ad|0)==0){S=c[12]|0;if((S|0)==0|ab>>>0<S>>>0){c[12]=ab}c[120]=ab;c[121]=aa;c[123]=0;c[17]=c[2];c[16]=-1;S=0;do{Y=S<<1;ac=72+(Y<<2)|0;c[72+(Y+3<<2)>>2]=ac;c[72+(Y+2<<2)>>2]=ac;S=S+1|0;}while(S>>>0<32);S=ab+8|0;if((S&7|0)==0){ae=0}else{ae=-S&7}S=aa-40-ae|0;c[14]=ab+ae;c[11]=S;c[ab+(ae+4)>>2]=S|1;c[ab+(aa-36)>>2]=40;c[15]=c[6]}else{S=480;while(1){af=c[S>>2]|0;ag=S+4|0;aj=c[ag>>2]|0;if((ab|0)==(af+aj|0)){T=312;break}ac=c[S+8>>2]|0;if((ac|0)==0){break}else{S=ac}}do{if((T|0)==312){if((c[S+12>>2]&8|0)!=0){break}ac=ad;if(!(ac>>>0>=af>>>0&ac>>>0<ab>>>0)){break}c[ag>>2]=aj+aa;ac=c[14]|0;Y=(c[11]|0)+aa|0;Z=ac;W=ac+8|0;if((W&7|0)==0){ak=0}else{ak=-W&7}W=Y-ak|0;c[14]=Z+ak;c[11]=W;c[Z+(ak+4)>>2]=W|1;c[Z+(Y+4)>>2]=40;c[15]=c[6];break L454}}while(0);if(ab>>>0<(c[12]|0)>>>0){c[12]=ab}S=ab+aa|0;Y=480;while(1){ao=Y|0;if((c[ao>>2]|0)==(S|0)){T=322;break}Z=c[Y+8>>2]|0;if((Z|0)==0){break}else{Y=Z}}do{if((T|0)==322){if((c[Y+12>>2]&8|0)!=0){break}c[ao>>2]=ab;S=Y+4|0;c[S>>2]=(c[S>>2]|0)+aa;S=ab+8|0;if((S&7|0)==0){ap=0}else{ap=-S&7}S=ab+(aa+8)|0;if((S&7|0)==0){aq=0}else{aq=-S&7}S=ab+(aq+aa)|0;Z=S;W=ap+o|0;ac=ab+W|0;_=ac;K=S-(ab+ap)-o|0;c[ab+(ap+4)>>2]=o|3;do{if((Z|0)==(c[14]|0)){J=(c[11]|0)+K|0;c[11]=J;c[14]=_;c[ab+(W+4)>>2]=J|1}else{if((Z|0)==(c[13]|0)){J=(c[10]|0)+K|0;c[10]=J;c[13]=_;c[ab+(W+4)>>2]=J|1;c[ab+(J+W)>>2]=J;break}J=aa+4|0;X=c[ab+(J+aq)>>2]|0;if((X&3|0)==1){$=X&-8;V=X>>>3;L499:do{if(X>>>0<256){U=c[ab+((aq|8)+aa)>>2]|0;Q=c[ab+(aa+12+aq)>>2]|0;R=72+(V<<1<<2)|0;do{if((U|0)!=(R|0)){if(U>>>0<(c[12]|0)>>>0){am();return 0}if((c[U+12>>2]|0)==(Z|0)){break}am();return 0}}while(0);if((Q|0)==(U|0)){c[8]=c[8]&~(1<<V);break}do{if((Q|0)==(R|0)){ar=Q+8|0}else{if(Q>>>0<(c[12]|0)>>>0){am();return 0}m=Q+8|0;if((c[m>>2]|0)==(Z|0)){ar=m;break}am();return 0}}while(0);c[U+12>>2]=Q;c[ar>>2]=U}else{R=S;m=c[ab+((aq|24)+aa)>>2]|0;P=c[ab+(aa+12+aq)>>2]|0;do{if((P|0)==(R|0)){O=aq|16;g=ab+(J+O)|0;L=c[g>>2]|0;if((L|0)==0){e=ab+(O+aa)|0;O=c[e>>2]|0;if((O|0)==0){as=0;break}else{at=O;au=e}}else{at=L;au=g}while(1){g=at+20|0;L=c[g>>2]|0;if((L|0)!=0){at=L;au=g;continue}g=at+16|0;L=c[g>>2]|0;if((L|0)==0){break}else{at=L;au=g}}if(au>>>0<(c[12]|0)>>>0){am();return 0}else{c[au>>2]=0;as=at;break}}else{g=c[ab+((aq|8)+aa)>>2]|0;if(g>>>0<(c[12]|0)>>>0){am();return 0}L=g+12|0;if((c[L>>2]|0)!=(R|0)){am();return 0}e=P+8|0;if((c[e>>2]|0)==(R|0)){c[L>>2]=P;c[e>>2]=g;as=P;break}else{am();return 0}}}while(0);if((m|0)==0){break}P=ab+(aa+28+aq)|0;U=336+(c[P>>2]<<2)|0;do{if((R|0)==(c[U>>2]|0)){c[U>>2]=as;if((as|0)!=0){break}c[9]=c[9]&~(1<<c[P>>2]);break L499}else{if(m>>>0<(c[12]|0)>>>0){am();return 0}Q=m+16|0;if((c[Q>>2]|0)==(R|0)){c[Q>>2]=as}else{c[m+20>>2]=as}if((as|0)==0){break L499}}}while(0);if(as>>>0<(c[12]|0)>>>0){am();return 0}c[as+24>>2]=m;R=aq|16;P=c[ab+(R+aa)>>2]|0;do{if((P|0)!=0){if(P>>>0<(c[12]|0)>>>0){am();return 0}else{c[as+16>>2]=P;c[P+24>>2]=as;break}}}while(0);P=c[ab+(J+R)>>2]|0;if((P|0)==0){break}if(P>>>0<(c[12]|0)>>>0){am();return 0}else{c[as+20>>2]=P;c[P+24>>2]=as;break}}}while(0);av=ab+(($|aq)+aa)|0;aw=$+K|0}else{av=Z;aw=K}J=av+4|0;c[J>>2]=c[J>>2]&-2;c[ab+(W+4)>>2]=aw|1;c[ab+(aw+W)>>2]=aw;J=aw>>>3;if(aw>>>0<256){V=J<<1;X=72+(V<<2)|0;P=c[8]|0;m=1<<J;do{if((P&m|0)==0){c[8]=P|m;ax=X;ay=72+(V+2<<2)|0}else{J=72+(V+2<<2)|0;U=c[J>>2]|0;if(U>>>0>=(c[12]|0)>>>0){ax=U;ay=J;break}am();return 0}}while(0);c[ay>>2]=_;c[ax+12>>2]=_;c[ab+(W+8)>>2]=ax;c[ab+(W+12)>>2]=X;break}V=ac;m=aw>>>8;do{if((m|0)==0){az=0}else{if(aw>>>0>16777215){az=31;break}P=(m+1048320|0)>>>16&8;$=m<<P;J=($+520192|0)>>>16&4;U=$<<J;$=(U+245760|0)>>>16&2;Q=14-(J|P|$)+(U<<$>>>15)|0;az=aw>>>((Q+7|0)>>>0)&1|Q<<1}}while(0);m=336+(az<<2)|0;c[ab+(W+28)>>2]=az;c[ab+(W+20)>>2]=0;c[ab+(W+16)>>2]=0;X=c[9]|0;Q=1<<az;if((X&Q|0)==0){c[9]=X|Q;c[m>>2]=V;c[ab+(W+24)>>2]=m;c[ab+(W+12)>>2]=V;c[ab+(W+8)>>2]=V;break}if((az|0)==31){aA=0}else{aA=25-(az>>>1)|0}Q=aw<<aA;X=c[m>>2]|0;while(1){if((c[X+4>>2]&-8|0)==(aw|0)){break}aB=X+16+(Q>>>31<<2)|0;m=c[aB>>2]|0;if((m|0)==0){T=395;break}else{Q=Q<<1;X=m}}if((T|0)==395){if(aB>>>0<(c[12]|0)>>>0){am();return 0}else{c[aB>>2]=V;c[ab+(W+24)>>2]=X;c[ab+(W+12)>>2]=V;c[ab+(W+8)>>2]=V;break}}Q=X+8|0;m=c[Q>>2]|0;$=c[12]|0;if(X>>>0<$>>>0){am();return 0}if(m>>>0<$>>>0){am();return 0}else{c[m+12>>2]=V;c[Q>>2]=V;c[ab+(W+8)>>2]=m;c[ab+(W+12)>>2]=X;c[ab+(W+24)>>2]=0;break}}}while(0);n=ab+(ap|8)|0;return n|0}}while(0);Y=ad;W=480;while(1){aC=c[W>>2]|0;if(aC>>>0<=Y>>>0){aD=c[W+4>>2]|0;aE=aC+aD|0;if(aE>>>0>Y>>>0){break}}W=c[W+8>>2]|0}W=aC+(aD-39)|0;if((W&7|0)==0){aF=0}else{aF=-W&7}W=aC+(aD-47+aF)|0;ac=W>>>0<(ad+16|0)>>>0?Y:W;W=ac+8|0;_=ab+8|0;if((_&7|0)==0){aG=0}else{aG=-_&7}_=aa-40-aG|0;c[14]=ab+aG;c[11]=_;c[ab+(aG+4)>>2]=_|1;c[ab+(aa-36)>>2]=40;c[15]=c[6];c[ac+4>>2]=27;c[W>>2]=c[120];c[W+4>>2]=c[121];c[W+8>>2]=c[122];c[W+12>>2]=c[123];c[120]=ab;c[121]=aa;c[123]=0;c[122]=W;W=ac+28|0;c[W>>2]=7;if((ac+32|0)>>>0<aE>>>0){_=W;while(1){W=_+4|0;c[W>>2]=7;if((_+8|0)>>>0<aE>>>0){_=W}else{break}}}if((ac|0)==(Y|0)){break}_=ac-ad|0;W=Y+(_+4)|0;c[W>>2]=c[W>>2]&-2;c[ad+4>>2]=_|1;c[Y+_>>2]=_;W=_>>>3;if(_>>>0<256){K=W<<1;Z=72+(K<<2)|0;S=c[8]|0;m=1<<W;do{if((S&m|0)==0){c[8]=S|m;aH=Z;aI=72+(K+2<<2)|0}else{W=72+(K+2<<2)|0;Q=c[W>>2]|0;if(Q>>>0>=(c[12]|0)>>>0){aH=Q;aI=W;break}am();return 0}}while(0);c[aI>>2]=ad;c[aH+12>>2]=ad;c[ad+8>>2]=aH;c[ad+12>>2]=Z;break}K=ad;m=_>>>8;do{if((m|0)==0){aJ=0}else{if(_>>>0>16777215){aJ=31;break}S=(m+1048320|0)>>>16&8;Y=m<<S;ac=(Y+520192|0)>>>16&4;W=Y<<ac;Y=(W+245760|0)>>>16&2;Q=14-(ac|S|Y)+(W<<Y>>>15)|0;aJ=_>>>((Q+7|0)>>>0)&1|Q<<1}}while(0);m=336+(aJ<<2)|0;c[ad+28>>2]=aJ;c[ad+20>>2]=0;c[ad+16>>2]=0;Z=c[9]|0;Q=1<<aJ;if((Z&Q|0)==0){c[9]=Z|Q;c[m>>2]=K;c[ad+24>>2]=m;c[ad+12>>2]=ad;c[ad+8>>2]=ad;break}if((aJ|0)==31){aK=0}else{aK=25-(aJ>>>1)|0}Q=_<<aK;Z=c[m>>2]|0;while(1){if((c[Z+4>>2]&-8|0)==(_|0)){break}aL=Z+16+(Q>>>31<<2)|0;m=c[aL>>2]|0;if((m|0)==0){T=430;break}else{Q=Q<<1;Z=m}}if((T|0)==430){if(aL>>>0<(c[12]|0)>>>0){am();return 0}else{c[aL>>2]=K;c[ad+24>>2]=Z;c[ad+12>>2]=ad;c[ad+8>>2]=ad;break}}Q=Z+8|0;_=c[Q>>2]|0;m=c[12]|0;if(Z>>>0<m>>>0){am();return 0}if(_>>>0<m>>>0){am();return 0}else{c[_+12>>2]=K;c[Q>>2]=K;c[ad+8>>2]=_;c[ad+12>>2]=Z;c[ad+24>>2]=0;break}}}while(0);ad=c[11]|0;if(ad>>>0<=o>>>0){break}_=ad-o|0;c[11]=_;ad=c[14]|0;Q=ad;c[14]=Q+o;c[Q+(o+4)>>2]=_|1;c[ad+4>>2]=o|3;n=ad+8|0;return n|0}}while(0);c[(al()|0)>>2]=12;n=0;return n|0}function aQ(a){a=a|0;var b=0,d=0,e=0,f=0,g=0,h=0,i=0,j=0,k=0,l=0,m=0,n=0,o=0,p=0,q=0,r=0,s=0,t=0,u=0,v=0,w=0,x=0,y=0,z=0,A=0,B=0,C=0,D=0,E=0,F=0,G=0,H=0,I=0,J=0,K=0,L=0,M=0,N=0,O=0;if((a|0)==0){return}b=a-8|0;d=b;e=c[12]|0;if(b>>>0<e>>>0){am()}f=c[a-4>>2]|0;g=f&3;if((g|0)==1){am()}h=f&-8;i=a+(h-8)|0;j=i;L671:do{if((f&1|0)==0){k=c[b>>2]|0;if((g|0)==0){return}l=-8-k|0;m=a+l|0;n=m;o=k+h|0;if(m>>>0<e>>>0){am()}if((n|0)==(c[13]|0)){p=a+(h-4)|0;if((c[p>>2]&3|0)!=3){q=n;r=o;break}c[10]=o;c[p>>2]=c[p>>2]&-2;c[a+(l+4)>>2]=o|1;c[i>>2]=o;return}p=k>>>3;if(k>>>0<256){k=c[a+(l+8)>>2]|0;s=c[a+(l+12)>>2]|0;t=72+(p<<1<<2)|0;do{if((k|0)!=(t|0)){if(k>>>0<e>>>0){am()}if((c[k+12>>2]|0)==(n|0)){break}am()}}while(0);if((s|0)==(k|0)){c[8]=c[8]&~(1<<p);q=n;r=o;break}do{if((s|0)==(t|0)){u=s+8|0}else{if(s>>>0<e>>>0){am()}v=s+8|0;if((c[v>>2]|0)==(n|0)){u=v;break}am()}}while(0);c[k+12>>2]=s;c[u>>2]=k;q=n;r=o;break}t=m;p=c[a+(l+24)>>2]|0;v=c[a+(l+12)>>2]|0;do{if((v|0)==(t|0)){w=a+(l+20)|0;x=c[w>>2]|0;if((x|0)==0){y=a+(l+16)|0;z=c[y>>2]|0;if((z|0)==0){A=0;break}else{B=z;C=y}}else{B=x;C=w}while(1){w=B+20|0;x=c[w>>2]|0;if((x|0)!=0){B=x;C=w;continue}w=B+16|0;x=c[w>>2]|0;if((x|0)==0){break}else{B=x;C=w}}if(C>>>0<e>>>0){am()}else{c[C>>2]=0;A=B;break}}else{w=c[a+(l+8)>>2]|0;if(w>>>0<e>>>0){am()}x=w+12|0;if((c[x>>2]|0)!=(t|0)){am()}y=v+8|0;if((c[y>>2]|0)==(t|0)){c[x>>2]=v;c[y>>2]=w;A=v;break}else{am()}}}while(0);if((p|0)==0){q=n;r=o;break}v=a+(l+28)|0;m=336+(c[v>>2]<<2)|0;do{if((t|0)==(c[m>>2]|0)){c[m>>2]=A;if((A|0)!=0){break}c[9]=c[9]&~(1<<c[v>>2]);q=n;r=o;break L671}else{if(p>>>0<(c[12]|0)>>>0){am()}k=p+16|0;if((c[k>>2]|0)==(t|0)){c[k>>2]=A}else{c[p+20>>2]=A}if((A|0)==0){q=n;r=o;break L671}}}while(0);if(A>>>0<(c[12]|0)>>>0){am()}c[A+24>>2]=p;t=c[a+(l+16)>>2]|0;do{if((t|0)!=0){if(t>>>0<(c[12]|0)>>>0){am()}else{c[A+16>>2]=t;c[t+24>>2]=A;break}}}while(0);t=c[a+(l+20)>>2]|0;if((t|0)==0){q=n;r=o;break}if(t>>>0<(c[12]|0)>>>0){am()}else{c[A+20>>2]=t;c[t+24>>2]=A;q=n;r=o;break}}else{q=d;r=h}}while(0);d=q;if(d>>>0>=i>>>0){am()}A=a+(h-4)|0;e=c[A>>2]|0;if((e&1|0)==0){am()}do{if((e&2|0)==0){if((j|0)==(c[14]|0)){B=(c[11]|0)+r|0;c[11]=B;c[14]=q;c[q+4>>2]=B|1;if((q|0)!=(c[13]|0)){return}c[13]=0;c[10]=0;return}if((j|0)==(c[13]|0)){B=(c[10]|0)+r|0;c[10]=B;c[13]=q;c[q+4>>2]=B|1;c[d+B>>2]=B;return}B=(e&-8)+r|0;C=e>>>3;L773:do{if(e>>>0<256){u=c[a+h>>2]|0;g=c[a+(h|4)>>2]|0;b=72+(C<<1<<2)|0;do{if((u|0)!=(b|0)){if(u>>>0<(c[12]|0)>>>0){am()}if((c[u+12>>2]|0)==(j|0)){break}am()}}while(0);if((g|0)==(u|0)){c[8]=c[8]&~(1<<C);break}do{if((g|0)==(b|0)){D=g+8|0}else{if(g>>>0<(c[12]|0)>>>0){am()}f=g+8|0;if((c[f>>2]|0)==(j|0)){D=f;break}am()}}while(0);c[u+12>>2]=g;c[D>>2]=u}else{b=i;f=c[a+(h+16)>>2]|0;t=c[a+(h|4)>>2]|0;do{if((t|0)==(b|0)){p=a+(h+12)|0;v=c[p>>2]|0;if((v|0)==0){m=a+(h+8)|0;k=c[m>>2]|0;if((k|0)==0){E=0;break}else{F=k;G=m}}else{F=v;G=p}while(1){p=F+20|0;v=c[p>>2]|0;if((v|0)!=0){F=v;G=p;continue}p=F+16|0;v=c[p>>2]|0;if((v|0)==0){break}else{F=v;G=p}}if(G>>>0<(c[12]|0)>>>0){am()}else{c[G>>2]=0;E=F;break}}else{p=c[a+h>>2]|0;if(p>>>0<(c[12]|0)>>>0){am()}v=p+12|0;if((c[v>>2]|0)!=(b|0)){am()}m=t+8|0;if((c[m>>2]|0)==(b|0)){c[v>>2]=t;c[m>>2]=p;E=t;break}else{am()}}}while(0);if((f|0)==0){break}t=a+(h+20)|0;u=336+(c[t>>2]<<2)|0;do{if((b|0)==(c[u>>2]|0)){c[u>>2]=E;if((E|0)!=0){break}c[9]=c[9]&~(1<<c[t>>2]);break L773}else{if(f>>>0<(c[12]|0)>>>0){am()}g=f+16|0;if((c[g>>2]|0)==(b|0)){c[g>>2]=E}else{c[f+20>>2]=E}if((E|0)==0){break L773}}}while(0);if(E>>>0<(c[12]|0)>>>0){am()}c[E+24>>2]=f;b=c[a+(h+8)>>2]|0;do{if((b|0)!=0){if(b>>>0<(c[12]|0)>>>0){am()}else{c[E+16>>2]=b;c[b+24>>2]=E;break}}}while(0);b=c[a+(h+12)>>2]|0;if((b|0)==0){break}if(b>>>0<(c[12]|0)>>>0){am()}else{c[E+20>>2]=b;c[b+24>>2]=E;break}}}while(0);c[q+4>>2]=B|1;c[d+B>>2]=B;if((q|0)!=(c[13]|0)){H=B;break}c[10]=B;return}else{c[A>>2]=e&-2;c[q+4>>2]=r|1;c[d+r>>2]=r;H=r}}while(0);r=H>>>3;if(H>>>0<256){d=r<<1;e=72+(d<<2)|0;A=c[8]|0;E=1<<r;do{if((A&E|0)==0){c[8]=A|E;I=e;J=72+(d+2<<2)|0}else{r=72+(d+2<<2)|0;h=c[r>>2]|0;if(h>>>0>=(c[12]|0)>>>0){I=h;J=r;break}am()}}while(0);c[J>>2]=q;c[I+12>>2]=q;c[q+8>>2]=I;c[q+12>>2]=e;return}e=q;I=H>>>8;do{if((I|0)==0){K=0}else{if(H>>>0>16777215){K=31;break}J=(I+1048320|0)>>>16&8;d=I<<J;E=(d+520192|0)>>>16&4;A=d<<E;d=(A+245760|0)>>>16&2;r=14-(E|J|d)+(A<<d>>>15)|0;K=H>>>((r+7|0)>>>0)&1|r<<1}}while(0);I=336+(K<<2)|0;c[q+28>>2]=K;c[q+20>>2]=0;c[q+16>>2]=0;r=c[9]|0;d=1<<K;do{if((r&d|0)==0){c[9]=r|d;c[I>>2]=e;c[q+24>>2]=I;c[q+12>>2]=q;c[q+8>>2]=q}else{if((K|0)==31){L=0}else{L=25-(K>>>1)|0}A=H<<L;J=c[I>>2]|0;while(1){if((c[J+4>>2]&-8|0)==(H|0)){break}M=J+16+(A>>>31<<2)|0;E=c[M>>2]|0;if((E|0)==0){N=607;break}else{A=A<<1;J=E}}if((N|0)==607){if(M>>>0<(c[12]|0)>>>0){am()}else{c[M>>2]=e;c[q+24>>2]=J;c[q+12>>2]=q;c[q+8>>2]=q;break}}A=J+8|0;B=c[A>>2]|0;E=c[12]|0;if(J>>>0<E>>>0){am()}if(B>>>0<E>>>0){am()}else{c[B+12>>2]=e;c[A>>2]=e;c[q+8>>2]=B;c[q+12>>2]=J;c[q+24>>2]=0;break}}}while(0);q=(c[16]|0)-1|0;c[16]=q;if((q|0)==0){O=488}else{return}while(1){q=c[O>>2]|0;if((q|0)==0){break}else{O=q+8|0}}c[16]=-1;return}function aR(b,d,e){b=b|0;d=d|0;e=e|0;var f=0;f=b|0;if((b&3)==(d&3)){while(b&3){if((e|0)==0)return f|0;a[b]=a[d]|0;b=b+1|0;d=d+1|0;e=e-1|0}while((e|0)>=4){c[b>>2]=c[d>>2];b=b+4|0;d=d+4|0;e=e-4|0}}while((e|0)>0){a[b]=a[d]|0;b=b+1|0;d=d+1|0;e=e-1|0}return f|0}function aS(b,d,e){b=b|0;d=d|0;e=e|0;var f=0,g=0,h=0;f=b+e|0;if((e|0)>=20){d=d&255;e=b&3;g=d|d<<8|d<<16|d<<24;h=f&~3;if(e){e=b+4-e|0;while((b|0)<(e|0)){a[b]=d;b=b+1|0}}while((b|0)<(h|0)){c[b>>2]=g;b=b+4|0}}while((b|0)<(f|0)){a[b]=d;b=b+1|0}}function aT(b){b=b|0;var c=0;c=b;while(a[c]|0){c=c+1|0}return c-b|0}function aU(a,b){a=a|0;b=b|0;return ap[a&1](b|0)|0}function aV(a){a=a|0;aq[a&1]()}function aW(a,b,c){a=a|0;b=b|0;c=c|0;return ar[a&1](b|0,c|0)|0}function aX(a,b){a=a|0;b=b|0;as[a&1](b|0)}function aY(a){a=a|0;_(0);return 0}function aZ(){_(1)}function a_(a,b){a=a|0;b=b|0;_(2);return 0}function a$(a){a=a|0;_(3)}
+function __power2p($value){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $retval;
+ var $value_addr;
+ $value_addr=$value;
+ var $0=$value_addr;
+ var $cmp=($0|0)==0;
+ if($cmp){label=2;break;}else{label=3;break;}
+ case 2: 
+ $retval=1;
+ label=8;break;
+ case 3: 
+ var $1=$value_addr;
+ var $cmp1=($1|0)==2;
+ if($cmp1){label=4;break;}else{label=5;break;}
+ case 4: 
+ $retval=1;
+ label=8;break;
+ case 5: 
+ var $2=$value_addr;
+ var $and=$2&1;
+ var $tobool=($and|0)!=0;
+ if($tobool){label=6;break;}else{label=7;break;}
+ case 6: 
+ $retval=0;
+ label=8;break;
+ case 7: 
+ var $3=$value_addr;
+ var $shr=$3>>1;
+ var $call=__power2p($shr);
+ $retval=$call;
+ label=8;break;
+ case 8: 
+ var $4=$retval;
+ return $4;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __bitcount($value){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $retval;
+ var $value_addr;
+ $value_addr=$value;
+ var $0=$value_addr;
+ var $cmp=($0|0)==0;
+ if($cmp){label=2;break;}else{label=3;break;}
+ case 2: 
+ $retval=0;
+ label=8;break;
+ case 3: 
+ var $1=$value_addr;
+ var $cmp1=($1|0)==1;
+ if($cmp1){label=4;break;}else{label=5;break;}
+ case 4: 
+ $retval=1;
+ label=8;break;
+ case 5: 
+ var $2=$value_addr;
+ var $cmp4=($2|0)==2;
+ if($cmp4){label=6;break;}else{label=7;break;}
+ case 6: 
+ $retval=2;
+ label=8;break;
+ case 7: 
+ var $3=$value_addr;
+ var $shr=$3>>1;
+ var $call=__bitcount($shr);
+ var $add=((($call)+(1))|0);
+ $retval=$add;
+ label=8;break;
+ case 8: 
+ var $4=$retval;
+ return $4;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __ceil_power2($value){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $retval;
+ var $value_addr;
+ var $j;
+ var $i;
+ var $res;
+ $value_addr=$value;
+ var $0=$value_addr;
+ var $call=__power2p($0);
+ var $tobool=($call|0)!=0;
+ if($tobool){label=2;break;}else{label=3;break;}
+ case 2: 
+ var $1=$value_addr;
+ $retval=$1;
+ label=10;break;
+ case 3: 
+ var $2=$value_addr;
+ var $cmp=($2|0)==1;
+ if($cmp){label=4;break;}else{label=5;break;}
+ case 4: 
+ $retval=2;
+ label=10;break;
+ case 5: 
+ var $3=$value_addr;
+ var $call3=__bitcount($3);
+ $i=$call3;
+ $res=1;
+ $j=0;
+ label=6;break;
+ case 6: 
+ var $4=$j;
+ var $5=$i;
+ var $cmp4=($4|0)<($5|0);
+ if($cmp4){label=7;break;}else{label=9;break;}
+ case 7: 
+ var $6=$res;
+ var $shl=$6<<1;
+ $res=$shl;
+ label=8;break;
+ case 8: 
+ var $7=$j;
+ var $inc=((($7)+(1))|0);
+ $j=$inc;
+ label=6;break;
+ case 9: 
+ var $8=$res;
+ $retval=$8;
+ label=10;break;
+ case 10: 
+ var $9=$retval;
+ return $9;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __floor_power2($value){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $retval;
+ var $value_addr;
+ $value_addr=$value;
+ var $0=$value_addr;
+ var $call=__power2p($0);
+ var $tobool=($call|0)!=0;
+ if($tobool){label=2;break;}else{label=3;break;}
+ case 2: 
+ var $1=$value_addr;
+ $retval=$1;
+ label=4;break;
+ case 3: 
+ var $2=$value_addr;
+ var $call1=__ceil_power2($2);
+ var $div=(((($call1|0))/(2))&-1);
+ $retval=$div;
+ label=4;break;
+ case 4: 
+ var $3=$retval;
+ return $3;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __iabs($x){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $retval;
+ var $x_addr;
+ $x_addr=$x;
+ var $0=$x_addr;
+ var $cmp=($0|0)>=0;
+ if($cmp){label=2;break;}else{label=3;break;}
+ case 2: 
+ var $1=$x_addr;
+ $retval=$1;
+ label=4;break;
+ case 3: 
+ var $2=$x_addr;
+ var $sub=(((-$2))|0);
+ $retval=$sub;
+ label=4;break;
+ case 4: 
+ var $3=$retval;
+ return $3;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __2power($i){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $i_addr;
+ var $res;
+ var $j;
+ $i_addr=$i;
+ $res=1;
+ $j=0;
+ label=2;break;
+ case 2: 
+ var $0=$j;
+ var $1=$i_addr;
+ var $cmp=($0|0)<($1|0);
+ if($cmp){label=3;break;}else{label=5;break;}
+ case 3: 
+ var $2=$res;
+ var $shl=$2<<1;
+ $res=$shl;
+ label=4;break;
+ case 4: 
+ var $3=$j;
+ var $inc=((($3)+(1))|0);
+ $j=$inc;
+ label=2;break;
+ case 5: 
+ var $4=$res;
+ return $4;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __dywapitch_computeWaveletPitch($samples,$startsample,$samplecount){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $samples_addr;
+ var $startsample_addr;
+ var $samplecount_addr;
+ var $pitchF;
+ var $i;
+ var $j;
+ var $si;
+ var $si1;
+ var $sam;
+ var $curSamNb;
+ var $distances;
+ var $mins;
+ var $maxs;
+ var $nbMins;
+ var $nbMaxs;
+ var $maxFLWTlevels;
+ var $maxF;
+ var $differenceLevelsN;
+ var $maximaThresholdRatio;
+ var $ampltitudeThreshold;
+ var $theDC;
+ var $maxValue;
+ var $minValue;
+ var $amplitudeMax;
+ var $curLevel;
+ var $curModeDistance;
+ var $delta;
+ var $dv;
+ var $previousDV;
+ var $lastMinIndex;
+ var $lastmaxIndex;
+ var $findMax;
+ var $findMin;
+ var $d;
+ var $bestDistance;
+ var $bestValue;
+ var $summed;
+ var $distAvg;
+ var $nbDists;
+ var $nbDist;
+ var $similarity;
+ $samples_addr=$samples;
+ $startsample_addr=$startsample;
+ $samplecount_addr=$samplecount;
+ $pitchF=0;
+ var $0=$samplecount_addr;
+ var $call=__floor_power2($0);
+ $samplecount_addr=$call;
+ var $1=$samplecount_addr;
+ var $mul=($1<<3);
+ var $call1=_malloc($mul);
+ var $2=$call1;
+ $sam=$2;
+ var $3=$sam;
+ var $4=$3;
+ var $5=$samples_addr;
+ var $6=$startsample_addr;
+ var $add_ptr=(($5+($6<<3))|0);
+ var $7=$add_ptr;
+ var $8=$samplecount_addr;
+ var $mul2=($8<<3);
+ assert($mul2 % 1 === 0);(_memcpy($4, $7, $mul2)|0);
+ var $9=$samplecount_addr;
+ $curSamNb=$9;
+ var $10=$samplecount_addr;
+ var $mul3=($10<<2);
+ var $call4=_malloc($mul3);
+ var $11=$call4;
+ $distances=$11;
+ var $12=$samplecount_addr;
+ var $mul5=($12<<2);
+ var $call6=_malloc($mul5);
+ var $13=$call6;
+ $mins=$13;
+ var $14=$samplecount_addr;
+ var $mul7=($14<<2);
+ var $call8=_malloc($mul7);
+ var $15=$call8;
+ $maxs=$15;
+ $maxFLWTlevels=6;
+ $maxF=3000;
+ $differenceLevelsN=3;
+ $maximaThresholdRatio=0.75;
+ $theDC=0;
+ $maxValue=0;
+ $minValue=0;
+ $i=0;
+ label=2;break;
+ case 2: 
+ var $16=$i;
+ var $17=$samplecount_addr;
+ var $cmp=($16|0)<($17|0);
+ if($cmp){label=3;break;}else{label=9;break;}
+ case 3: 
+ var $18=$i;
+ var $19=$sam;
+ var $arrayidx=(($19+($18<<3))|0);
+ var $20=HEAPF64[(($arrayidx)>>3)];
+ $si=$20;
+ var $21=$theDC;
+ var $22=$si;
+ var $add=($21)+($22);
+ $theDC=$add;
+ var $23=$si;
+ var $24=$maxValue;
+ var $cmp9=$23>$24;
+ if($cmp9){label=4;break;}else{label=5;break;}
+ case 4: 
+ var $25=$si;
+ $maxValue=$25;
+ label=5;break;
+ case 5: 
+ var $26=$si;
+ var $27=$minValue;
+ var $cmp10=$26<$27;
+ if($cmp10){label=6;break;}else{label=7;break;}
+ case 6: 
+ var $28=$si;
+ $minValue=$28;
+ label=7;break;
+ case 7: 
+ label=8;break;
+ case 8: 
+ var $29=$i;
+ var $inc=((($29)+(1))|0);
+ $i=$inc;
+ label=2;break;
+ case 9: 
+ var $30=$theDC;
+ var $31=$samplecount_addr;
+ var $conv=($31|0);
+ var $div=($30)/($conv);
+ $theDC=$div;
+ var $32=$maxValue;
+ var $33=$theDC;
+ var $sub=($32)-($33);
+ $maxValue=$sub;
+ var $34=$minValue;
+ var $35=$theDC;
+ var $sub13=($34)-($35);
+ $minValue=$sub13;
+ var $36=$maxValue;
+ var $37=$minValue;
+ var $sub14=((-.0))-($37);
+ var $cmp15=$36>$sub14;
+ if($cmp15){label=10;break;}else{label=11;break;}
+ case 10: 
+ var $38=$maxValue;
+ var $cond=$38;label=12;break;
+ case 11: 
+ var $39=$minValue;
+ var $sub17=((-.0))-($39);
+ var $cond=$sub17;label=12;break;
+ case 12: 
+ var $cond;
+ $amplitudeMax=$cond;
+ var $40=$amplitudeMax;
+ var $41=$maximaThresholdRatio;
+ var $mul18=($40)*($41);
+ $ampltitudeThreshold=$mul18;
+ $curLevel=0;
+ $curModeDistance=-1;
+ label=13;break;
+ case 13: 
+ var $42=$curLevel;
+ var $call19=__2power($42);
+ var $conv20=($call19|0);
+ var $43=$maxF;
+ var $mul21=($conv20)*($43);
+ var $div22=(44100)/($mul21);
+ var $conv23=(($div22)&-1);
+ $delta=$conv23;
+ var $44=$curSamNb;
+ var $cmp24=($44|0)<2;
+ if($cmp24){label=14;break;}else{label=15;break;}
+ case 14: 
+ label=110;break;
+ case 15: 
+ $previousDV=-1000;
+ $nbMaxs=0;
+ $nbMins=0;
+ $lastMinIndex=-1000000;
+ $lastmaxIndex=-1000000;
+ $findMax=0;
+ $findMin=0;
+ $i=2;
+ label=16;break;
+ case 16: 
+ var $45=$i;
+ var $46=$curSamNb;
+ var $cmp29=($45|0)<($46|0);
+ if($cmp29){label=17;break;}else{label=47;break;}
+ case 17: 
+ var $47=$i;
+ var $48=$sam;
+ var $arrayidx32=(($48+($47<<3))|0);
+ var $49=HEAPF64[(($arrayidx32)>>3)];
+ var $50=$theDC;
+ var $sub33=($49)-($50);
+ $si=$sub33;
+ var $51=$i;
+ var $sub34=((($51)-(1))|0);
+ var $52=$sam;
+ var $arrayidx35=(($52+($sub34<<3))|0);
+ var $53=HEAPF64[(($arrayidx35)>>3)];
+ var $54=$theDC;
+ var $sub36=($53)-($54);
+ $si1=$sub36;
+ var $55=$si1;
+ var $cmp37=$55<=0;
+ if($cmp37){label=18;break;}else{label=20;break;}
+ case 18: 
+ var $56=$si;
+ var $cmp39=$56>0;
+ if($cmp39){label=19;break;}else{label=20;break;}
+ case 19: 
+ $findMax=1;
+ label=20;break;
+ case 20: 
+ var $57=$si1;
+ var $cmp43=$57>=0;
+ if($cmp43){label=21;break;}else{label=23;break;}
+ case 21: 
+ var $58=$si;
+ var $cmp46=$58<0;
+ if($cmp46){label=22;break;}else{label=23;break;}
+ case 22: 
+ $findMin=1;
+ label=23;break;
+ case 23: 
+ var $59=$si;
+ var $60=$si1;
+ var $sub50=($59)-($60);
+ $dv=$sub50;
+ var $61=$previousDV;
+ var $cmp51=$61>-1000;
+ if($cmp51){label=24;break;}else{label=45;break;}
+ case 24: 
+ var $62=$findMin;
+ var $tobool=($62|0)!=0;
+ if($tobool){label=25;break;}else{label=34;break;}
+ case 25: 
+ var $63=$previousDV;
+ var $cmp55=$63<0;
+ if($cmp55){label=26;break;}else{label=34;break;}
+ case 26: 
+ var $64=$dv;
+ var $cmp58=$64>=0;
+ if($cmp58){label=27;break;}else{label=34;break;}
+ case 27: 
+ var $65=$si;
+ var $call61=Math_abs($65);
+ var $66=$ampltitudeThreshold;
+ var $cmp62=$call61>=$66;
+ if($cmp62){label=28;break;}else{label=32;break;}
+ case 28: 
+ var $67=$i;
+ var $68=$lastMinIndex;
+ var $69=$delta;
+ var $add65=((($68)+($69))|0);
+ var $cmp66=($67|0)>($add65|0);
+ if($cmp66){label=29;break;}else{label=30;break;}
+ case 29: 
+ var $70=$i;
+ var $71=$nbMins;
+ var $inc69=((($71)+(1))|0);
+ $nbMins=$inc69;
+ var $72=$mins;
+ var $arrayidx70=(($72+($71<<2))|0);
+ HEAP32[(($arrayidx70)>>2)]=$70;
+ var $73=$i;
+ $lastMinIndex=$73;
+ $findMin=0;
+ label=31;break;
+ case 30: 
+ label=31;break;
+ case 31: 
+ label=33;break;
+ case 32: 
+ label=33;break;
+ case 33: 
+ label=34;break;
+ case 34: 
+ var $74=$findMax;
+ var $tobool75=($74|0)!=0;
+ if($tobool75){label=35;break;}else{label=44;break;}
+ case 35: 
+ var $75=$previousDV;
+ var $cmp77=$75>0;
+ if($cmp77){label=36;break;}else{label=44;break;}
+ case 36: 
+ var $76=$dv;
+ var $cmp80=$76<=0;
+ if($cmp80){label=37;break;}else{label=44;break;}
+ case 37: 
+ var $77=$si;
+ var $call83=Math_abs($77);
+ var $78=$ampltitudeThreshold;
+ var $cmp84=$call83>=$78;
+ if($cmp84){label=38;break;}else{label=42;break;}
+ case 38: 
+ var $79=$i;
+ var $80=$lastmaxIndex;
+ var $81=$delta;
+ var $add87=((($80)+($81))|0);
+ var $cmp88=($79|0)>($add87|0);
+ if($cmp88){label=39;break;}else{label=40;break;}
+ case 39: 
+ var $82=$i;
+ var $83=$nbMaxs;
+ var $inc91=((($83)+(1))|0);
+ $nbMaxs=$inc91;
+ var $84=$maxs;
+ var $arrayidx92=(($84+($83<<2))|0);
+ HEAP32[(($arrayidx92)>>2)]=$82;
+ var $85=$i;
+ $lastmaxIndex=$85;
+ $findMax=0;
+ label=41;break;
+ case 40: 
+ label=41;break;
+ case 41: 
+ label=43;break;
+ case 42: 
+ label=43;break;
+ case 43: 
+ label=44;break;
+ case 44: 
+ label=45;break;
+ case 45: 
+ var $86=$dv;
+ $previousDV=$86;
+ label=46;break;
+ case 46: 
+ var $87=$i;
+ var $inc100=((($87)+(1))|0);
+ $i=$inc100;
+ label=16;break;
+ case 47: 
+ var $88=$nbMins;
+ var $cmp102=($88|0)==0;
+ if($cmp102){label=48;break;}else{label=50;break;}
+ case 48: 
+ var $89=$nbMaxs;
+ var $cmp105=($89|0)==0;
+ if($cmp105){label=49;break;}else{label=50;break;}
+ case 49: 
+ label=110;break;
+ case 50: 
+ var $90=$distances;
+ var $91=$90;
+ var $92=$samplecount_addr;
+ var $mul109=($92<<2);
+ _memset($91, 0, $mul109);
+ $i=0;
+ label=51;break;
+ case 51: 
+ var $93=$i;
+ var $94=$nbMins;
+ var $cmp111=($93|0)<($94|0);
+ if($cmp111){label=52;break;}else{label=60;break;}
+ case 52: 
+ $j=1;
+ label=53;break;
+ case 53: 
+ var $95=$j;
+ var $96=$differenceLevelsN;
+ var $cmp115=($95|0)<($96|0);
+ if($cmp115){label=54;break;}else{label=58;break;}
+ case 54: 
+ var $97=$i;
+ var $98=$j;
+ var $add118=((($97)+($98))|0);
+ var $99=$nbMins;
+ var $cmp119=($add118|0)<($99|0);
+ if($cmp119){label=55;break;}else{label=56;break;}
+ case 55: 
+ var $100=$i;
+ var $101=$mins;
+ var $arrayidx122=(($101+($100<<2))|0);
+ var $102=HEAP32[(($arrayidx122)>>2)];
+ var $103=$i;
+ var $104=$j;
+ var $add123=((($103)+($104))|0);
+ var $105=$mins;
+ var $arrayidx124=(($105+($add123<<2))|0);
+ var $106=HEAP32[(($arrayidx124)>>2)];
+ var $sub125=((($102)-($106))|0);
+ var $call126=__iabs($sub125);
+ $d=$call126;
+ var $107=$d;
+ var $108=$distances;
+ var $arrayidx127=(($108+($107<<2))|0);
+ var $109=HEAP32[(($arrayidx127)>>2)];
+ var $add128=((($109)+(1))|0);
+ var $110=$d;
+ var $111=$distances;
+ var $arrayidx129=(($111+($110<<2))|0);
+ HEAP32[(($arrayidx129)>>2)]=$add128;
+ label=56;break;
+ case 56: 
+ label=57;break;
+ case 57: 
+ var $112=$j;
+ var $inc132=((($112)+(1))|0);
+ $j=$inc132;
+ label=53;break;
+ case 58: 
+ label=59;break;
+ case 59: 
+ var $113=$i;
+ var $inc135=((($113)+(1))|0);
+ $i=$inc135;
+ label=51;break;
+ case 60: 
+ $i=0;
+ label=61;break;
+ case 61: 
+ var $114=$i;
+ var $115=$nbMaxs;
+ var $cmp138=($114|0)<($115|0);
+ if($cmp138){label=62;break;}else{label=70;break;}
+ case 62: 
+ $j=1;
+ label=63;break;
+ case 63: 
+ var $116=$j;
+ var $117=$differenceLevelsN;
+ var $cmp142=($116|0)<($117|0);
+ if($cmp142){label=64;break;}else{label=68;break;}
+ case 64: 
+ var $118=$i;
+ var $119=$j;
+ var $add145=((($118)+($119))|0);
+ var $120=$nbMaxs;
+ var $cmp146=($add145|0)<($120|0);
+ if($cmp146){label=65;break;}else{label=66;break;}
+ case 65: 
+ var $121=$i;
+ var $122=$maxs;
+ var $arrayidx149=(($122+($121<<2))|0);
+ var $123=HEAP32[(($arrayidx149)>>2)];
+ var $124=$i;
+ var $125=$j;
+ var $add150=((($124)+($125))|0);
+ var $126=$maxs;
+ var $arrayidx151=(($126+($add150<<2))|0);
+ var $127=HEAP32[(($arrayidx151)>>2)];
+ var $sub152=((($123)-($127))|0);
+ var $call153=__iabs($sub152);
+ $d=$call153;
+ var $128=$d;
+ var $129=$distances;
+ var $arrayidx154=(($129+($128<<2))|0);
+ var $130=HEAP32[(($arrayidx154)>>2)];
+ var $add155=((($130)+(1))|0);
+ var $131=$d;
+ var $132=$distances;
+ var $arrayidx156=(($132+($131<<2))|0);
+ HEAP32[(($arrayidx156)>>2)]=$add155;
+ label=66;break;
+ case 66: 
+ label=67;break;
+ case 67: 
+ var $133=$j;
+ var $inc159=((($133)+(1))|0);
+ $j=$inc159;
+ label=63;break;
+ case 68: 
+ label=69;break;
+ case 69: 
+ var $134=$i;
+ var $inc162=((($134)+(1))|0);
+ $i=$inc162;
+ label=61;break;
+ case 70: 
+ $bestDistance=-1;
+ $bestValue=-1;
+ $i=0;
+ label=71;break;
+ case 71: 
+ var $135=$i;
+ var $136=$curSamNb;
+ var $cmp165=($135|0)<($136|0);
+ if($cmp165){label=72;break;}else{label=88;break;}
+ case 72: 
+ $summed=0;
+ var $137=$delta;
+ var $sub168=(((-$137))|0);
+ $j=$sub168;
+ label=73;break;
+ case 73: 
+ var $138=$j;
+ var $139=$delta;
+ var $cmp170=($138|0)<=($139|0);
+ if($cmp170){label=74;break;}else{label=79;break;}
+ case 74: 
+ var $140=$i;
+ var $141=$j;
+ var $add173=((($140)+($141))|0);
+ var $cmp174=($add173|0)>=0;
+ if($cmp174){label=75;break;}else{label=77;break;}
+ case 75: 
+ var $142=$i;
+ var $143=$j;
+ var $add177=((($142)+($143))|0);
+ var $144=$curSamNb;
+ var $cmp178=($add177|0)<($144|0);
+ if($cmp178){label=76;break;}else{label=77;break;}
+ case 76: 
+ var $145=$i;
+ var $146=$j;
+ var $add181=((($145)+($146))|0);
+ var $147=$distances;
+ var $arrayidx182=(($147+($add181<<2))|0);
+ var $148=HEAP32[(($arrayidx182)>>2)];
+ var $149=$summed;
+ var $add183=((($149)+($148))|0);
+ $summed=$add183;
+ label=77;break;
+ case 77: 
+ label=78;break;
+ case 78: 
+ var $150=$j;
+ var $inc186=((($150)+(1))|0);
+ $j=$inc186;
+ label=73;break;
+ case 79: 
+ var $151=$summed;
+ var $152=$bestValue;
+ var $cmp188=($151|0)==($152|0);
+ if($cmp188){label=80;break;}else{label=83;break;}
+ case 80: 
+ var $153=$i;
+ var $154=$bestDistance;
+ var $mul191=($154<<1);
+ var $cmp192=($153|0)==($mul191|0);
+ if($cmp192){label=81;break;}else{label=82;break;}
+ case 81: 
+ var $155=$i;
+ $bestDistance=$155;
+ label=82;break;
+ case 82: 
+ label=86;break;
+ case 83: 
+ var $156=$summed;
+ var $157=$bestValue;
+ var $cmp197=($156|0)>($157|0);
+ if($cmp197){label=84;break;}else{label=85;break;}
+ case 84: 
+ var $158=$summed;
+ $bestValue=$158;
+ var $159=$i;
+ $bestDistance=$159;
+ label=85;break;
+ case 85: 
+ label=86;break;
+ case 86: 
+ label=87;break;
+ case 87: 
+ var $160=$i;
+ var $inc203=((($160)+(1))|0);
+ $i=$inc203;
+ label=71;break;
+ case 88: 
+ $distAvg=0;
+ $nbDists=0;
+ var $161=$delta;
+ var $sub205=(((-$161))|0);
+ $j=$sub205;
+ label=89;break;
+ case 89: 
+ var $162=$j;
+ var $163=$delta;
+ var $cmp207=($162|0)<=($163|0);
+ if($cmp207){label=90;break;}else{label=97;break;}
+ case 90: 
+ var $164=$bestDistance;
+ var $165=$j;
+ var $add210=((($164)+($165))|0);
+ var $cmp211=($add210|0)>=0;
+ if($cmp211){label=91;break;}else{label=95;break;}
+ case 91: 
+ var $166=$bestDistance;
+ var $167=$j;
+ var $add214=((($166)+($167))|0);
+ var $168=$samplecount_addr;
+ var $cmp215=($add214|0)<($168|0);
+ if($cmp215){label=92;break;}else{label=95;break;}
+ case 92: 
+ var $169=$bestDistance;
+ var $170=$j;
+ var $add218=((($169)+($170))|0);
+ var $171=$distances;
+ var $arrayidx219=(($171+($add218<<2))|0);
+ var $172=HEAP32[(($arrayidx219)>>2)];
+ $nbDist=$172;
+ var $173=$nbDist;
+ var $cmp220=($173|0)>0;
+ if($cmp220){label=93;break;}else{label=94;break;}
+ case 93: 
+ var $174=$nbDist;
+ var $conv223=($174|0);
+ var $175=$nbDists;
+ var $add224=($175)+($conv223);
+ $nbDists=$add224;
+ var $176=$bestDistance;
+ var $177=$j;
+ var $add225=((($176)+($177))|0);
+ var $178=$nbDist;
+ var $mul226=(Math_imul($add225,$178)|0);
+ var $conv227=($mul226|0);
+ var $179=$distAvg;
+ var $add228=($179)+($conv227);
+ $distAvg=$add228;
+ label=94;break;
+ case 94: 
+ label=95;break;
+ case 95: 
+ label=96;break;
+ case 96: 
+ var $180=$j;
+ var $inc232=((($180)+(1))|0);
+ $j=$inc232;
+ label=89;break;
+ case 97: 
+ var $181=$nbDists;
+ var $182=$distAvg;
+ var $div234=($182)/($181);
+ $distAvg=$div234;
+ var $183=$curModeDistance;
+ var $cmp235=$183>-1;
+ if($cmp235){label=98;break;}else{label=101;break;}
+ case 98: 
+ var $184=$distAvg;
+ var $mul238=($184)*(2);
+ var $185=$curModeDistance;
+ var $sub239=($mul238)-($185);
+ var $call240=Math_abs($sub239);
+ $similarity=$call240;
+ var $186=$similarity;
+ var $187=$delta;
+ var $mul241=($187<<1);
+ var $conv242=($mul241|0);
+ var $cmp243=$186<=$conv242;
+ if($cmp243){label=99;break;}else{label=100;break;}
+ case 99: 
+ var $188=$curLevel;
+ var $sub246=((($188)-(1))|0);
+ var $call247=__2power($sub246);
+ var $conv248=($call247|0);
+ var $189=$curModeDistance;
+ var $mul249=($conv248)*($189);
+ var $div250=(44100)/($mul249);
+ $pitchF=$div250;
+ label=110;break;
+ case 100: 
+ label=101;break;
+ case 101: 
+ var $190=$distAvg;
+ $curModeDistance=$190;
+ var $191=$curLevel;
+ var $add253=((($191)+(1))|0);
+ $curLevel=$add253;
+ var $192=$curLevel;
+ var $193=$maxFLWTlevels;
+ var $cmp254=($192|0)>=($193|0);
+ if($cmp254){label=102;break;}else{label=103;break;}
+ case 102: 
+ label=110;break;
+ case 103: 
+ var $194=$curSamNb;
+ var $cmp258=($194|0)<2;
+ if($cmp258){label=104;break;}else{label=105;break;}
+ case 104: 
+ label=110;break;
+ case 105: 
+ $i=0;
+ label=106;break;
+ case 106: 
+ var $195=$i;
+ var $196=$curSamNb;
+ var $div263=(((($196|0))/(2))&-1);
+ var $cmp264=($195|0)<($div263|0);
+ if($cmp264){label=107;break;}else{label=109;break;}
+ case 107: 
+ var $197=$i;
+ var $mul267=($197<<1);
+ var $198=$sam;
+ var $arrayidx268=(($198+($mul267<<3))|0);
+ var $199=HEAPF64[(($arrayidx268)>>3)];
+ var $200=$i;
+ var $mul269=($200<<1);
+ var $add270=((($mul269)+(1))|0);
+ var $201=$sam;
+ var $arrayidx271=(($201+($add270<<3))|0);
+ var $202=HEAPF64[(($arrayidx271)>>3)];
+ var $add272=($199)+($202);
+ var $div273=($add272)/(2);
+ var $203=$i;
+ var $204=$sam;
+ var $arrayidx274=(($204+($203<<3))|0);
+ HEAPF64[(($arrayidx274)>>3)]=$div273;
+ label=108;break;
+ case 108: 
+ var $205=$i;
+ var $inc276=((($205)+(1))|0);
+ $i=$inc276;
+ label=106;break;
+ case 109: 
+ var $206=$curSamNb;
+ var $div278=(((($206|0))/(2))&-1);
+ $curSamNb=$div278;
+ label=13;break;
+ case 110: 
+ var $207=$distances;
+ var $208=$207;
+ _free($208);
+ var $209=$mins;
+ var $210=$209;
+ _free($210);
+ var $211=$maxs;
+ var $212=$211;
+ _free($212);
+ var $213=$sam;
+ var $214=$213;
+ _free($214);
+ var $215=$pitchF;
+ return $215;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function __dywapitch_dynamicprocess($pitchtracker,$pitch){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $pitchtracker_addr;
+ var $pitch_addr;
+ var $estimatedPitch;
+ var $acceptedError;
+ var $maxConfidence;
+ $pitchtracker_addr=$pitchtracker;
+ $pitch_addr=$pitch;
+ var $0=$pitch_addr;
+ var $cmp=$0==0;
+ if($cmp){label=2;break;}else{label=3;break;}
+ case 2: 
+ $pitch_addr=-1;
+ label=3;break;
+ case 3: 
+ $estimatedPitch=-1;
+ $acceptedError=0.20000000298023224;
+ $maxConfidence=5;
+ var $1=$pitch_addr;
+ var $cmp1=$1!=-1;
+ if($cmp1){label=4;break;}else{label=28;break;}
+ case 4: 
+ var $2=$pitchtracker_addr;
+ var $_prevPitch=(($2)|0);
+ var $3=HEAPF64[(($_prevPitch)>>3)];
+ var $cmp3=$3==-1;
+ if($cmp3){label=5;break;}else{label=6;break;}
+ case 5: 
+ var $4=$pitch_addr;
+ $estimatedPitch=$4;
+ var $5=$pitch_addr;
+ var $6=$pitchtracker_addr;
+ var $_prevPitch5=(($6)|0);
+ HEAPF64[(($_prevPitch5)>>3)]=$5;
+ var $7=$pitchtracker_addr;
+ var $_pitchConfidence=(($7+8)|0);
+ HEAP32[(($_pitchConfidence)>>2)]=1;
+ label=27;break;
+ case 6: 
+ var $8=$pitchtracker_addr;
+ var $_prevPitch6=(($8)|0);
+ var $9=HEAPF64[(($_prevPitch6)>>3)];
+ var $10=$pitch_addr;
+ var $sub=($9)-($10);
+ var $conv=(($sub)&-1);
+ var $call=Math_abs($conv);
+ var $conv7=($call|0);
+ var $11=$pitch_addr;
+ var $div=($conv7)/($11);
+ var $12=$acceptedError;
+ var $cmp8=$div<$12;
+ if($cmp8){label=7;break;}else{label=11;break;}
+ case 7: 
+ var $13=$pitch_addr;
+ var $14=$pitchtracker_addr;
+ var $_prevPitch11=(($14)|0);
+ HEAPF64[(($_prevPitch11)>>3)]=$13;
+ var $15=$pitch_addr;
+ $estimatedPitch=$15;
+ var $16=$maxConfidence;
+ var $17=$pitchtracker_addr;
+ var $_pitchConfidence12=(($17+8)|0);
+ var $18=HEAP32[(($_pitchConfidence12)>>2)];
+ var $add=((($18)+(1))|0);
+ var $cmp13=($16|0)<($add|0);
+ if($cmp13){label=8;break;}else{label=9;break;}
+ case 8: 
+ var $19=$maxConfidence;
+ var $cond=$19;label=10;break;
+ case 9: 
+ var $20=$pitchtracker_addr;
+ var $_pitchConfidence15=(($20+8)|0);
+ var $21=HEAP32[(($_pitchConfidence15)>>2)];
+ var $add16=((($21)+(1))|0);
+ var $cond=$add16;label=10;break;
+ case 10: 
+ var $cond;
+ var $22=$pitchtracker_addr;
+ var $_pitchConfidence17=(($22+8)|0);
+ HEAP32[(($_pitchConfidence17)>>2)]=$cond;
+ label=26;break;
+ case 11: 
+ var $23=$pitchtracker_addr;
+ var $_pitchConfidence19=(($23+8)|0);
+ var $24=HEAP32[(($_pitchConfidence19)>>2)];
+ var $25=$maxConfidence;
+ var $sub20=((($25)-(2))|0);
+ var $cmp21=($24|0)>=($sub20|0);
+ if($cmp21){label=12;break;}else{label=14;break;}
+ case 12: 
+ var $26=$pitchtracker_addr;
+ var $_prevPitch23=(($26)|0);
+ var $27=HEAPF64[(($_prevPitch23)>>3)];
+ var $28=$pitch_addr;
+ var $mul=($28)*(2);
+ var $sub24=($27)-($mul);
+ var $conv25=(($sub24)&-1);
+ var $call26=Math_abs($conv25);
+ var $conv27=($call26|0);
+ var $29=$pitch_addr;
+ var $mul28=($29)*(2);
+ var $div29=($conv27)/($mul28);
+ var $30=$acceptedError;
+ var $cmp30=$div29<$30;
+ if($cmp30){label=13;break;}else{label=14;break;}
+ case 13: 
+ var $31=$pitch_addr;
+ var $mul33=($31)*(2);
+ $estimatedPitch=$mul33;
+ var $32=$estimatedPitch;
+ var $33=$pitchtracker_addr;
+ var $_prevPitch34=(($33)|0);
+ HEAPF64[(($_prevPitch34)>>3)]=$32;
+ label=25;break;
+ case 14: 
+ var $34=$pitchtracker_addr;
+ var $_pitchConfidence36=(($34+8)|0);
+ var $35=HEAP32[(($_pitchConfidence36)>>2)];
+ var $36=$maxConfidence;
+ var $sub37=((($36)-(2))|0);
+ var $cmp38=($35|0)>=($sub37|0);
+ if($cmp38){label=15;break;}else{label=17;break;}
+ case 15: 
+ var $37=$pitchtracker_addr;
+ var $_prevPitch41=(($37)|0);
+ var $38=HEAPF64[(($_prevPitch41)>>3)];
+ var $39=$pitch_addr;
+ var $mul42=((0.5))*($39);
+ var $sub43=($38)-($mul42);
+ var $conv44=(($sub43)&-1);
+ var $call45=Math_abs($conv44);
+ var $conv46=($call45|0);
+ var $40=$pitch_addr;
+ var $mul47=((0.5))*($40);
+ var $div48=($conv46)/($mul47);
+ var $41=$acceptedError;
+ var $cmp49=$div48<$41;
+ if($cmp49){label=16;break;}else{label=17;break;}
+ case 16: 
+ var $42=$pitch_addr;
+ var $mul52=((0.5))*($42);
+ $estimatedPitch=$mul52;
+ var $43=$estimatedPitch;
+ var $44=$pitchtracker_addr;
+ var $_prevPitch53=(($44)|0);
+ HEAPF64[(($_prevPitch53)>>3)]=$43;
+ label=24;break;
+ case 17: 
+ var $45=$pitchtracker_addr;
+ var $_pitchConfidence55=(($45+8)|0);
+ var $46=HEAP32[(($_pitchConfidence55)>>2)];
+ var $cmp56=($46|0)>=1;
+ if($cmp56){label=18;break;}else{label=22;break;}
+ case 18: 
+ var $47=$pitchtracker_addr;
+ var $_prevPitch59=(($47)|0);
+ var $48=HEAPF64[(($_prevPitch59)>>3)];
+ $estimatedPitch=$48;
+ var $49=$pitchtracker_addr;
+ var $_pitchConfidence60=(($49+8)|0);
+ var $50=HEAP32[(($_pitchConfidence60)>>2)];
+ var $sub61=((($50)-(1))|0);
+ var $cmp62=0>($sub61|0);
+ if($cmp62){label=19;break;}else{label=20;break;}
+ case 19: 
+ var $cond69=0;label=21;break;
+ case 20: 
+ var $51=$pitchtracker_addr;
+ var $_pitchConfidence66=(($51+8)|0);
+ var $52=HEAP32[(($_pitchConfidence66)>>2)];
+ var $sub67=((($52)-(1))|0);
+ var $cond69=$sub67;label=21;break;
+ case 21: 
+ var $cond69;
+ var $53=$pitchtracker_addr;
+ var $_pitchConfidence70=(($53+8)|0);
+ HEAP32[(($_pitchConfidence70)>>2)]=$cond69;
+ label=23;break;
+ case 22: 
+ var $54=$pitch_addr;
+ $estimatedPitch=$54;
+ var $55=$pitch_addr;
+ var $56=$pitchtracker_addr;
+ var $_prevPitch72=(($56)|0);
+ HEAPF64[(($_prevPitch72)>>3)]=$55;
+ var $57=$pitchtracker_addr;
+ var $_pitchConfidence73=(($57+8)|0);
+ HEAP32[(($_pitchConfidence73)>>2)]=1;
+ label=23;break;
+ case 23: 
+ label=24;break;
+ case 24: 
+ label=25;break;
+ case 25: 
+ label=26;break;
+ case 26: 
+ label=27;break;
+ case 27: 
+ label=37;break;
+ case 28: 
+ var $58=$pitchtracker_addr;
+ var $_prevPitch80=(($58)|0);
+ var $59=HEAPF64[(($_prevPitch80)>>3)];
+ var $cmp81=$59!=-1;
+ if($cmp81){label=29;break;}else{label=36;break;}
+ case 29: 
+ var $60=$pitchtracker_addr;
+ var $_pitchConfidence84=(($60+8)|0);
+ var $61=HEAP32[(($_pitchConfidence84)>>2)];
+ var $cmp85=($61|0)>=1;
+ if($cmp85){label=30;break;}else{label=34;break;}
+ case 30: 
+ var $62=$pitchtracker_addr;
+ var $_prevPitch88=(($62)|0);
+ var $63=HEAPF64[(($_prevPitch88)>>3)];
+ $estimatedPitch=$63;
+ var $64=$pitchtracker_addr;
+ var $_pitchConfidence89=(($64+8)|0);
+ var $65=HEAP32[(($_pitchConfidence89)>>2)];
+ var $sub90=((($65)-(1))|0);
+ var $cmp91=0>($sub90|0);
+ if($cmp91){label=31;break;}else{label=32;break;}
+ case 31: 
+ var $cond98=0;label=33;break;
+ case 32: 
+ var $66=$pitchtracker_addr;
+ var $_pitchConfidence95=(($66+8)|0);
+ var $67=HEAP32[(($_pitchConfidence95)>>2)];
+ var $sub96=((($67)-(1))|0);
+ var $cond98=$sub96;label=33;break;
+ case 33: 
+ var $cond98;
+ var $68=$pitchtracker_addr;
+ var $_pitchConfidence99=(($68+8)|0);
+ HEAP32[(($_pitchConfidence99)>>2)]=$cond98;
+ label=35;break;
+ case 34: 
+ var $69=$pitchtracker_addr;
+ var $_prevPitch101=(($69)|0);
+ HEAPF64[(($_prevPitch101)>>3)]=-1;
+ $estimatedPitch=-1;
+ var $70=$pitchtracker_addr;
+ var $_pitchConfidence102=(($70+8)|0);
+ HEAP32[(($_pitchConfidence102)>>2)]=0;
+ label=35;break;
+ case 35: 
+ label=36;break;
+ case 36: 
+ label=37;break;
+ case 37: 
+ var $71=$pitchtracker_addr;
+ var $_pitchConfidence106=(($71+8)|0);
+ var $72=HEAP32[(($_pitchConfidence106)>>2)];
+ var $cmp107=($72|0)>=1;
+ if($cmp107){label=38;break;}else{label=39;break;}
+ case 38: 
+ var $73=$estimatedPitch;
+ $pitch_addr=$73;
+ label=40;break;
+ case 39: 
+ $pitch_addr=-1;
+ label=40;break;
+ case 40: 
+ var $74=$pitch_addr;
+ var $cmp112=$74==-1;
+ if($cmp112){label=41;break;}else{label=42;break;}
+ case 41: 
+ $pitch_addr=0;
+ label=42;break;
+ case 42: 
+ var $75=$pitch_addr;
+ return $75;
+  default: assert(0, "bad label: " + label);
+ }
+}
+function _dywapitch_inittracking($pitchtracker){
+ var label=0;
+ var $pitchtracker_addr;
+ $pitchtracker_addr=$pitchtracker;
+ var $0=$pitchtracker_addr;
+ var $_prevPitch=(($0)|0);
+ HEAPF64[(($_prevPitch)>>3)]=-1;
+ var $1=$pitchtracker_addr;
+ var $_pitchConfidence=(($1+8)|0);
+ HEAP32[(($_pitchConfidence)>>2)]=-1;
+ return;
+}
+Module["_dywapitch_inittracking"] = _dywapitch_inittracking;
+function _dywapitch_computepitch($pitchtracker,$samples,$startsample,$samplecount){
+ var label=0;
+ var $pitchtracker_addr;
+ var $samples_addr;
+ var $startsample_addr;
+ var $samplecount_addr;
+ var $raw_pitch;
+ $pitchtracker_addr=$pitchtracker;
+ $samples_addr=$samples;
+ $startsample_addr=$startsample;
+ $samplecount_addr=$samplecount;
+ var $0=$samples_addr;
+ var $1=$startsample_addr;
+ var $2=$samplecount_addr;
+ var $call=__dywapitch_computeWaveletPitch($0,$1,$2);
+ $raw_pitch=$call;
+ var $3=$pitchtracker_addr;
+ var $4=$raw_pitch;
+ var $call1=__dywapitch_dynamicprocess($3,$4);
+ return $call1;
+}
+Module["_dywapitch_computepitch"] = _dywapitch_computepitch;
+function _malloc($bytes){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $cmp=($bytes>>>0)<245;
+ if($cmp){label=2;break;}else{label=78;break;}
+ case 2: 
+ var $cmp1=($bytes>>>0)<11;
+ if($cmp1){var $cond=16;label=4;break;}else{label=3;break;}
+ case 3: 
+ var $add2=((($bytes)+(11))|0);
+ var $and=$add2&-8;
+ var $cond=$and;label=4;break;
+ case 4: 
+ var $cond;
+ var $shr=$cond>>>3;
+ var $0=HEAP32[((32)>>2)];
+ var $shr3=$0>>>($shr>>>0);
+ var $and4=$shr3&3;
+ var $cmp5=($and4|0)==0;
+ if($cmp5){label=12;break;}else{label=5;break;}
+ case 5: 
+ var $neg=$shr3&1;
+ var $and7=$neg^1;
+ var $add8=((($and7)+($shr))|0);
+ var $shl=$add8<<1;
+ var $arrayidx=((72+($shl<<2))|0);
+ var $1=$arrayidx;
+ var $arrayidx_sum=((($shl)+(2))|0);
+ var $2=((72+($arrayidx_sum<<2))|0);
+ var $3=HEAP32[(($2)>>2)];
+ var $fd9=(($3+8)|0);
+ var $4=HEAP32[(($fd9)>>2)];
+ var $cmp10=($1|0)==($4|0);
+ if($cmp10){label=6;break;}else{label=7;break;}
+ case 6: 
+ var $shl12=1<<$add8;
+ var $neg13=$shl12^-1;
+ var $and14=$0&$neg13;
+ HEAP32[((32)>>2)]=$and14;
+ label=11;break;
+ case 7: 
+ var $5=$4;
+ var $6=HEAP32[((48)>>2)];
+ var $cmp15=($5>>>0)<($6>>>0);
+ if($cmp15){label=10;break;}else{label=8;break;}
+ case 8: 
+ var $bk=(($4+12)|0);
+ var $7=HEAP32[(($bk)>>2)];
+ var $cmp16=($7|0)==($3|0);
+ if($cmp16){label=9;break;}else{label=10;break;}
+ case 9: 
+ HEAP32[(($bk)>>2)]=$1;
+ HEAP32[(($2)>>2)]=$4;
+ label=11;break;
+ case 10: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 11: 
+ var $shl22=$add8<<3;
+ var $or23=$shl22|3;
+ var $head=(($3+4)|0);
+ HEAP32[(($head)>>2)]=$or23;
+ var $8=$3;
+ var $add_ptr_sum106=$shl22|4;
+ var $head25=(($8+$add_ptr_sum106)|0);
+ var $9=$head25;
+ var $10=HEAP32[(($9)>>2)];
+ var $or26=$10|1;
+ HEAP32[(($9)>>2)]=$or26;
+ var $11=$fd9;
+ var $mem_0=$11;label=341;break;
+ case 12: 
+ var $12=HEAP32[((40)>>2)];
+ var $cmp29=($cond>>>0)>($12>>>0);
+ if($cmp29){label=13;break;}else{var $nb_0=$cond;label=160;break;}
+ case 13: 
+ var $cmp31=($shr3|0)==0;
+ if($cmp31){label=27;break;}else{label=14;break;}
+ case 14: 
+ var $shl35=$shr3<<$shr;
+ var $shl37=2<<$shr;
+ var $sub=(((-$shl37))|0);
+ var $or40=$shl37|$sub;
+ var $and41=$shl35&$or40;
+ var $sub42=(((-$and41))|0);
+ var $and43=$and41&$sub42;
+ var $sub44=((($and43)-(1))|0);
+ var $shr45=$sub44>>>12;
+ var $and46=$shr45&16;
+ var $shr47=$sub44>>>($and46>>>0);
+ var $shr48=$shr47>>>5;
+ var $and49=$shr48&8;
+ var $add50=$and49|$and46;
+ var $shr51=$shr47>>>($and49>>>0);
+ var $shr52=$shr51>>>2;
+ var $and53=$shr52&4;
+ var $add54=$add50|$and53;
+ var $shr55=$shr51>>>($and53>>>0);
+ var $shr56=$shr55>>>1;
+ var $and57=$shr56&2;
+ var $add58=$add54|$and57;
+ var $shr59=$shr55>>>($and57>>>0);
+ var $shr60=$shr59>>>1;
+ var $and61=$shr60&1;
+ var $add62=$add58|$and61;
+ var $shr63=$shr59>>>($and61>>>0);
+ var $add64=((($add62)+($shr63))|0);
+ var $shl65=$add64<<1;
+ var $arrayidx66=((72+($shl65<<2))|0);
+ var $13=$arrayidx66;
+ var $arrayidx66_sum=((($shl65)+(2))|0);
+ var $14=((72+($arrayidx66_sum<<2))|0);
+ var $15=HEAP32[(($14)>>2)];
+ var $fd69=(($15+8)|0);
+ var $16=HEAP32[(($fd69)>>2)];
+ var $cmp70=($13|0)==($16|0);
+ if($cmp70){label=15;break;}else{label=16;break;}
+ case 15: 
+ var $shl72=1<<$add64;
+ var $neg73=$shl72^-1;
+ var $and74=$0&$neg73;
+ HEAP32[((32)>>2)]=$and74;
+ label=20;break;
+ case 16: 
+ var $17=$16;
+ var $18=HEAP32[((48)>>2)];
+ var $cmp76=($17>>>0)<($18>>>0);
+ if($cmp76){label=19;break;}else{label=17;break;}
+ case 17: 
+ var $bk78=(($16+12)|0);
+ var $19=HEAP32[(($bk78)>>2)];
+ var $cmp79=($19|0)==($15|0);
+ if($cmp79){label=18;break;}else{label=19;break;}
+ case 18: 
+ HEAP32[(($bk78)>>2)]=$13;
+ HEAP32[(($14)>>2)]=$16;
+ label=20;break;
+ case 19: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 20: 
+ var $shl90=$add64<<3;
+ var $sub91=((($shl90)-($cond))|0);
+ var $or93=$cond|3;
+ var $head94=(($15+4)|0);
+ HEAP32[(($head94)>>2)]=$or93;
+ var $20=$15;
+ var $add_ptr95=(($20+$cond)|0);
+ var $21=$add_ptr95;
+ var $or96=$sub91|1;
+ var $add_ptr95_sum103=$cond|4;
+ var $head97=(($20+$add_ptr95_sum103)|0);
+ var $22=$head97;
+ HEAP32[(($22)>>2)]=$or96;
+ var $add_ptr98=(($20+$shl90)|0);
+ var $prev_foot=$add_ptr98;
+ HEAP32[(($prev_foot)>>2)]=$sub91;
+ var $23=HEAP32[((40)>>2)];
+ var $cmp99=($23|0)==0;
+ if($cmp99){label=26;break;}else{label=21;break;}
+ case 21: 
+ var $24=HEAP32[((52)>>2)];
+ var $shr101=$23>>>3;
+ var $shl102=$shr101<<1;
+ var $arrayidx103=((72+($shl102<<2))|0);
+ var $25=$arrayidx103;
+ var $26=HEAP32[((32)>>2)];
+ var $shl105=1<<$shr101;
+ var $and106=$26&$shl105;
+ var $tobool107=($and106|0)==0;
+ if($tobool107){label=22;break;}else{label=23;break;}
+ case 22: 
+ var $or110=$26|$shl105;
+ HEAP32[((32)>>2)]=$or110;
+ var $arrayidx103_sum_pre=((($shl102)+(2))|0);
+ var $_pre=((72+($arrayidx103_sum_pre<<2))|0);
+ var $F104_0=$25;var $_pre_phi=$_pre;label=25;break;
+ case 23: 
+ var $arrayidx103_sum104=((($shl102)+(2))|0);
+ var $27=((72+($arrayidx103_sum104<<2))|0);
+ var $28=HEAP32[(($27)>>2)];
+ var $29=$28;
+ var $30=HEAP32[((48)>>2)];
+ var $cmp113=($29>>>0)<($30>>>0);
+ if($cmp113){label=24;break;}else{var $F104_0=$28;var $_pre_phi=$27;label=25;break;}
+ case 24: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 25: 
+ var $_pre_phi;
+ var $F104_0;
+ HEAP32[(($_pre_phi)>>2)]=$24;
+ var $bk122=(($F104_0+12)|0);
+ HEAP32[(($bk122)>>2)]=$24;
+ var $fd123=(($24+8)|0);
+ HEAP32[(($fd123)>>2)]=$F104_0;
+ var $bk124=(($24+12)|0);
+ HEAP32[(($bk124)>>2)]=$25;
+ label=26;break;
+ case 26: 
+ HEAP32[((40)>>2)]=$sub91;
+ HEAP32[((52)>>2)]=$21;
+ var $31=$fd69;
+ var $mem_0=$31;label=341;break;
+ case 27: 
+ var $32=HEAP32[((36)>>2)];
+ var $cmp128=($32|0)==0;
+ if($cmp128){var $nb_0=$cond;label=160;break;}else{label=28;break;}
+ case 28: 
+ var $sub_i=(((-$32))|0);
+ var $and_i=$32&$sub_i;
+ var $sub2_i=((($and_i)-(1))|0);
+ var $shr_i=$sub2_i>>>12;
+ var $and3_i=$shr_i&16;
+ var $shr4_i=$sub2_i>>>($and3_i>>>0);
+ var $shr5_i=$shr4_i>>>5;
+ var $and6_i=$shr5_i&8;
+ var $add_i=$and6_i|$and3_i;
+ var $shr7_i=$shr4_i>>>($and6_i>>>0);
+ var $shr8_i=$shr7_i>>>2;
+ var $and9_i=$shr8_i&4;
+ var $add10_i=$add_i|$and9_i;
+ var $shr11_i=$shr7_i>>>($and9_i>>>0);
+ var $shr12_i=$shr11_i>>>1;
+ var $and13_i=$shr12_i&2;
+ var $add14_i=$add10_i|$and13_i;
+ var $shr15_i=$shr11_i>>>($and13_i>>>0);
+ var $shr16_i=$shr15_i>>>1;
+ var $and17_i=$shr16_i&1;
+ var $add18_i=$add14_i|$and17_i;
+ var $shr19_i=$shr15_i>>>($and17_i>>>0);
+ var $add20_i=((($add18_i)+($shr19_i))|0);
+ var $arrayidx_i=((336+($add20_i<<2))|0);
+ var $33=HEAP32[(($arrayidx_i)>>2)];
+ var $head_i=(($33+4)|0);
+ var $34=HEAP32[(($head_i)>>2)];
+ var $and21_i=$34&-8;
+ var $sub22_i=((($and21_i)-($cond))|0);
+ var $t_0_i=$33;var $v_0_i=$33;var $rsize_0_i=$sub22_i;label=29;break;
+ case 29: 
+ var $rsize_0_i;
+ var $v_0_i;
+ var $t_0_i;
+ var $arrayidx23_i=(($t_0_i+16)|0);
+ var $35=HEAP32[(($arrayidx23_i)>>2)];
+ var $cmp_i=($35|0)==0;
+ if($cmp_i){label=30;break;}else{var $cond7_i=$35;label=31;break;}
+ case 30: 
+ var $arrayidx27_i=(($t_0_i+20)|0);
+ var $36=HEAP32[(($arrayidx27_i)>>2)];
+ var $cmp28_i=($36|0)==0;
+ if($cmp28_i){label=32;break;}else{var $cond7_i=$36;label=31;break;}
+ case 31: 
+ var $cond7_i;
+ var $head29_i=(($cond7_i+4)|0);
+ var $37=HEAP32[(($head29_i)>>2)];
+ var $and30_i=$37&-8;
+ var $sub31_i=((($and30_i)-($cond))|0);
+ var $cmp32_i=($sub31_i>>>0)<($rsize_0_i>>>0);
+ var $sub31_rsize_0_i=$cmp32_i?$sub31_i:$rsize_0_i;
+ var $cond_v_0_i=$cmp32_i?$cond7_i:$v_0_i;
+ var $t_0_i=$cond7_i;var $v_0_i=$cond_v_0_i;var $rsize_0_i=$sub31_rsize_0_i;label=29;break;
+ case 32: 
+ var $38=$v_0_i;
+ var $39=HEAP32[((48)>>2)];
+ var $cmp33_i=($38>>>0)<($39>>>0);
+ if($cmp33_i){label=76;break;}else{label=33;break;}
+ case 33: 
+ var $add_ptr_i=(($38+$cond)|0);
+ var $40=$add_ptr_i;
+ var $cmp35_i=($38>>>0)<($add_ptr_i>>>0);
+ if($cmp35_i){label=34;break;}else{label=76;break;}
+ case 34: 
+ var $parent_i=(($v_0_i+24)|0);
+ var $41=HEAP32[(($parent_i)>>2)];
+ var $bk_i=(($v_0_i+12)|0);
+ var $42=HEAP32[(($bk_i)>>2)];
+ var $cmp40_i=($42|0)==($v_0_i|0);
+ if($cmp40_i){label=40;break;}else{label=35;break;}
+ case 35: 
+ var $fd_i=(($v_0_i+8)|0);
+ var $43=HEAP32[(($fd_i)>>2)];
+ var $44=$43;
+ var $cmp45_i=($44>>>0)<($39>>>0);
+ if($cmp45_i){label=39;break;}else{label=36;break;}
+ case 36: 
+ var $bk47_i=(($43+12)|0);
+ var $45=HEAP32[(($bk47_i)>>2)];
+ var $cmp48_i=($45|0)==($v_0_i|0);
+ if($cmp48_i){label=37;break;}else{label=39;break;}
+ case 37: 
+ var $fd50_i=(($42+8)|0);
+ var $46=HEAP32[(($fd50_i)>>2)];
+ var $cmp51_i=($46|0)==($v_0_i|0);
+ if($cmp51_i){label=38;break;}else{label=39;break;}
+ case 38: 
+ HEAP32[(($bk47_i)>>2)]=$42;
+ HEAP32[(($fd50_i)>>2)]=$43;
+ var $R_1_i=$42;label=47;break;
+ case 39: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 40: 
+ var $arrayidx61_i=(($v_0_i+20)|0);
+ var $47=HEAP32[(($arrayidx61_i)>>2)];
+ var $cmp62_i=($47|0)==0;
+ if($cmp62_i){label=41;break;}else{var $R_0_i=$47;var $RP_0_i=$arrayidx61_i;label=42;break;}
+ case 41: 
+ var $arrayidx65_i=(($v_0_i+16)|0);
+ var $48=HEAP32[(($arrayidx65_i)>>2)];
+ var $cmp66_i=($48|0)==0;
+ if($cmp66_i){var $R_1_i=0;label=47;break;}else{var $R_0_i=$48;var $RP_0_i=$arrayidx65_i;label=42;break;}
+ case 42: 
+ var $RP_0_i;
+ var $R_0_i;
+ var $arrayidx71_i=(($R_0_i+20)|0);
+ var $49=HEAP32[(($arrayidx71_i)>>2)];
+ var $cmp72_i=($49|0)==0;
+ if($cmp72_i){label=43;break;}else{var $R_0_i=$49;var $RP_0_i=$arrayidx71_i;label=42;break;}
+ case 43: 
+ var $arrayidx75_i=(($R_0_i+16)|0);
+ var $50=HEAP32[(($arrayidx75_i)>>2)];
+ var $cmp76_i=($50|0)==0;
+ if($cmp76_i){label=44;break;}else{var $R_0_i=$50;var $RP_0_i=$arrayidx75_i;label=42;break;}
+ case 44: 
+ var $51=$RP_0_i;
+ var $cmp81_i=($51>>>0)<($39>>>0);
+ if($cmp81_i){label=46;break;}else{label=45;break;}
+ case 45: 
+ HEAP32[(($RP_0_i)>>2)]=0;
+ var $R_1_i=$R_0_i;label=47;break;
+ case 46: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 47: 
+ var $R_1_i;
+ var $cmp90_i=($41|0)==0;
+ if($cmp90_i){label=67;break;}else{label=48;break;}
+ case 48: 
+ var $index_i=(($v_0_i+28)|0);
+ var $52=HEAP32[(($index_i)>>2)];
+ var $arrayidx94_i=((336+($52<<2))|0);
+ var $53=HEAP32[(($arrayidx94_i)>>2)];
+ var $cmp95_i=($v_0_i|0)==($53|0);
+ if($cmp95_i){label=49;break;}else{label=51;break;}
+ case 49: 
+ HEAP32[(($arrayidx94_i)>>2)]=$R_1_i;
+ var $cond5_i=($R_1_i|0)==0;
+ if($cond5_i){label=50;break;}else{label=57;break;}
+ case 50: 
+ var $54=HEAP32[(($index_i)>>2)];
+ var $shl_i=1<<$54;
+ var $neg_i=$shl_i^-1;
+ var $55=HEAP32[((36)>>2)];
+ var $and103_i=$55&$neg_i;
+ HEAP32[((36)>>2)]=$and103_i;
+ label=67;break;
+ case 51: 
+ var $56=$41;
+ var $57=HEAP32[((48)>>2)];
+ var $cmp107_i=($56>>>0)<($57>>>0);
+ if($cmp107_i){label=55;break;}else{label=52;break;}
+ case 52: 
+ var $arrayidx113_i=(($41+16)|0);
+ var $58=HEAP32[(($arrayidx113_i)>>2)];
+ var $cmp114_i=($58|0)==($v_0_i|0);
+ if($cmp114_i){label=53;break;}else{label=54;break;}
+ case 53: 
+ HEAP32[(($arrayidx113_i)>>2)]=$R_1_i;
+ label=56;break;
+ case 54: 
+ var $arrayidx121_i=(($41+20)|0);
+ HEAP32[(($arrayidx121_i)>>2)]=$R_1_i;
+ label=56;break;
+ case 55: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 56: 
+ var $cmp126_i=($R_1_i|0)==0;
+ if($cmp126_i){label=67;break;}else{label=57;break;}
+ case 57: 
+ var $59=$R_1_i;
+ var $60=HEAP32[((48)>>2)];
+ var $cmp130_i=($59>>>0)<($60>>>0);
+ if($cmp130_i){label=66;break;}else{label=58;break;}
+ case 58: 
+ var $parent135_i=(($R_1_i+24)|0);
+ HEAP32[(($parent135_i)>>2)]=$41;
+ var $arrayidx137_i=(($v_0_i+16)|0);
+ var $61=HEAP32[(($arrayidx137_i)>>2)];
+ var $cmp138_i=($61|0)==0;
+ if($cmp138_i){label=62;break;}else{label=59;break;}
+ case 59: 
+ var $62=$61;
+ var $63=HEAP32[((48)>>2)];
+ var $cmp142_i=($62>>>0)<($63>>>0);
+ if($cmp142_i){label=61;break;}else{label=60;break;}
+ case 60: 
+ var $arrayidx148_i=(($R_1_i+16)|0);
+ HEAP32[(($arrayidx148_i)>>2)]=$61;
+ var $parent149_i=(($61+24)|0);
+ HEAP32[(($parent149_i)>>2)]=$R_1_i;
+ label=62;break;
+ case 61: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 62: 
+ var $arrayidx154_i=(($v_0_i+20)|0);
+ var $64=HEAP32[(($arrayidx154_i)>>2)];
+ var $cmp155_i=($64|0)==0;
+ if($cmp155_i){label=67;break;}else{label=63;break;}
+ case 63: 
+ var $65=$64;
+ var $66=HEAP32[((48)>>2)];
+ var $cmp159_i=($65>>>0)<($66>>>0);
+ if($cmp159_i){label=65;break;}else{label=64;break;}
+ case 64: 
+ var $arrayidx165_i=(($R_1_i+20)|0);
+ HEAP32[(($arrayidx165_i)>>2)]=$64;
+ var $parent166_i=(($64+24)|0);
+ HEAP32[(($parent166_i)>>2)]=$R_1_i;
+ label=67;break;
+ case 65: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 66: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 67: 
+ var $cmp174_i=($rsize_0_i>>>0)<16;
+ if($cmp174_i){label=68;break;}else{label=69;break;}
+ case 68: 
+ var $add177_i=((($rsize_0_i)+($cond))|0);
+ var $or178_i=$add177_i|3;
+ var $head179_i=(($v_0_i+4)|0);
+ HEAP32[(($head179_i)>>2)]=$or178_i;
+ var $add_ptr181_sum_i=((($add177_i)+(4))|0);
+ var $head182_i=(($38+$add_ptr181_sum_i)|0);
+ var $67=$head182_i;
+ var $68=HEAP32[(($67)>>2)];
+ var $or183_i=$68|1;
+ HEAP32[(($67)>>2)]=$or183_i;
+ label=77;break;
+ case 69: 
+ var $or186_i=$cond|3;
+ var $head187_i=(($v_0_i+4)|0);
+ HEAP32[(($head187_i)>>2)]=$or186_i;
+ var $or188_i=$rsize_0_i|1;
+ var $add_ptr_sum_i175=$cond|4;
+ var $head189_i=(($38+$add_ptr_sum_i175)|0);
+ var $69=$head189_i;
+ HEAP32[(($69)>>2)]=$or188_i;
+ var $add_ptr_sum1_i=((($rsize_0_i)+($cond))|0);
+ var $add_ptr190_i=(($38+$add_ptr_sum1_i)|0);
+ var $prev_foot_i=$add_ptr190_i;
+ HEAP32[(($prev_foot_i)>>2)]=$rsize_0_i;
+ var $70=HEAP32[((40)>>2)];
+ var $cmp191_i=($70|0)==0;
+ if($cmp191_i){label=75;break;}else{label=70;break;}
+ case 70: 
+ var $71=HEAP32[((52)>>2)];
+ var $shr194_i=$70>>>3;
+ var $shl195_i=$shr194_i<<1;
+ var $arrayidx196_i=((72+($shl195_i<<2))|0);
+ var $72=$arrayidx196_i;
+ var $73=HEAP32[((32)>>2)];
+ var $shl198_i=1<<$shr194_i;
+ var $and199_i=$73&$shl198_i;
+ var $tobool200_i=($and199_i|0)==0;
+ if($tobool200_i){label=71;break;}else{label=72;break;}
+ case 71: 
+ var $or204_i=$73|$shl198_i;
+ HEAP32[((32)>>2)]=$or204_i;
+ var $arrayidx196_sum_pre_i=((($shl195_i)+(2))|0);
+ var $_pre_i=((72+($arrayidx196_sum_pre_i<<2))|0);
+ var $F197_0_i=$72;var $_pre_phi_i=$_pre_i;label=74;break;
+ case 72: 
+ var $arrayidx196_sum2_i=((($shl195_i)+(2))|0);
+ var $74=((72+($arrayidx196_sum2_i<<2))|0);
+ var $75=HEAP32[(($74)>>2)];
+ var $76=$75;
+ var $77=HEAP32[((48)>>2)];
+ var $cmp208_i=($76>>>0)<($77>>>0);
+ if($cmp208_i){label=73;break;}else{var $F197_0_i=$75;var $_pre_phi_i=$74;label=74;break;}
+ case 73: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 74: 
+ var $_pre_phi_i;
+ var $F197_0_i;
+ HEAP32[(($_pre_phi_i)>>2)]=$71;
+ var $bk218_i=(($F197_0_i+12)|0);
+ HEAP32[(($bk218_i)>>2)]=$71;
+ var $fd219_i=(($71+8)|0);
+ HEAP32[(($fd219_i)>>2)]=$F197_0_i;
+ var $bk220_i=(($71+12)|0);
+ HEAP32[(($bk220_i)>>2)]=$72;
+ label=75;break;
+ case 75: 
+ HEAP32[((40)>>2)]=$rsize_0_i;
+ HEAP32[((52)>>2)]=$40;
+ label=77;break;
+ case 76: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 77: 
+ var $add_ptr225_i=(($v_0_i+8)|0);
+ var $78=$add_ptr225_i;
+ var $cmp130=($add_ptr225_i|0)==0;
+ if($cmp130){var $nb_0=$cond;label=160;break;}else{var $mem_0=$78;label=341;break;}
+ case 78: 
+ var $cmp138=($bytes>>>0)>4294967231;
+ if($cmp138){var $nb_0=-1;label=160;break;}else{label=79;break;}
+ case 79: 
+ var $add143=((($bytes)+(11))|0);
+ var $and144=$add143&-8;
+ var $79=HEAP32[((36)>>2)];
+ var $cmp145=($79|0)==0;
+ if($cmp145){var $nb_0=$and144;label=160;break;}else{label=80;break;}
+ case 80: 
+ var $sub_i107=(((-$and144))|0);
+ var $shr_i108=$add143>>>8;
+ var $cmp_i109=($shr_i108|0)==0;
+ if($cmp_i109){var $idx_0_i=0;label=83;break;}else{label=81;break;}
+ case 81: 
+ var $cmp1_i=($and144>>>0)>16777215;
+ if($cmp1_i){var $idx_0_i=31;label=83;break;}else{label=82;break;}
+ case 82: 
+ var $sub4_i=((($shr_i108)+(1048320))|0);
+ var $shr5_i111=$sub4_i>>>16;
+ var $and_i112=$shr5_i111&8;
+ var $shl_i113=$shr_i108<<$and_i112;
+ var $sub6_i=((($shl_i113)+(520192))|0);
+ var $shr7_i114=$sub6_i>>>16;
+ var $and8_i=$shr7_i114&4;
+ var $add_i115=$and8_i|$and_i112;
+ var $shl9_i=$shl_i113<<$and8_i;
+ var $sub10_i=((($shl9_i)+(245760))|0);
+ var $shr11_i116=$sub10_i>>>16;
+ var $and12_i=$shr11_i116&2;
+ var $add13_i=$add_i115|$and12_i;
+ var $sub14_i=(((14)-($add13_i))|0);
+ var $shl15_i=$shl9_i<<$and12_i;
+ var $shr16_i117=$shl15_i>>>15;
+ var $add17_i=((($sub14_i)+($shr16_i117))|0);
+ var $shl18_i=$add17_i<<1;
+ var $add19_i=((($add17_i)+(7))|0);
+ var $shr20_i=$and144>>>($add19_i>>>0);
+ var $and21_i118=$shr20_i&1;
+ var $add22_i=$and21_i118|$shl18_i;
+ var $idx_0_i=$add22_i;label=83;break;
+ case 83: 
+ var $idx_0_i;
+ var $arrayidx_i119=((336+($idx_0_i<<2))|0);
+ var $80=HEAP32[(($arrayidx_i119)>>2)];
+ var $cmp24_i=($80|0)==0;
+ if($cmp24_i){var $v_2_i=0;var $rsize_2_i=$sub_i107;var $t_1_i=0;label=90;break;}else{label=84;break;}
+ case 84: 
+ var $cmp26_i=($idx_0_i|0)==31;
+ if($cmp26_i){var $cond_i=0;label=86;break;}else{label=85;break;}
+ case 85: 
+ var $shr27_i=$idx_0_i>>>1;
+ var $sub30_i=(((25)-($shr27_i))|0);
+ var $cond_i=$sub30_i;label=86;break;
+ case 86: 
+ var $cond_i;
+ var $shl31_i=$and144<<$cond_i;
+ var $v_0_i123=0;var $rsize_0_i122=$sub_i107;var $t_0_i121=$80;var $sizebits_0_i=$shl31_i;var $rst_0_i=0;label=87;break;
+ case 87: 
+ var $rst_0_i;
+ var $sizebits_0_i;
+ var $t_0_i121;
+ var $rsize_0_i122;
+ var $v_0_i123;
+ var $head_i124=(($t_0_i121+4)|0);
+ var $81=HEAP32[(($head_i124)>>2)];
+ var $and32_i=$81&-8;
+ var $sub33_i=((($and32_i)-($and144))|0);
+ var $cmp34_i=($sub33_i>>>0)<($rsize_0_i122>>>0);
+ if($cmp34_i){label=88;break;}else{var $v_1_i=$v_0_i123;var $rsize_1_i=$rsize_0_i122;label=89;break;}
+ case 88: 
+ var $cmp36_i=($and32_i|0)==($and144|0);
+ if($cmp36_i){var $v_2_i=$t_0_i121;var $rsize_2_i=$sub33_i;var $t_1_i=$t_0_i121;label=90;break;}else{var $v_1_i=$t_0_i121;var $rsize_1_i=$sub33_i;label=89;break;}
+ case 89: 
+ var $rsize_1_i;
+ var $v_1_i;
+ var $arrayidx40_i=(($t_0_i121+20)|0);
+ var $82=HEAP32[(($arrayidx40_i)>>2)];
+ var $shr41_i=$sizebits_0_i>>>31;
+ var $arrayidx44_i=(($t_0_i121+16+($shr41_i<<2))|0);
+ var $83=HEAP32[(($arrayidx44_i)>>2)];
+ var $cmp45_i125=($82|0)==0;
+ var $cmp46_i=($82|0)==($83|0);
+ var $or_cond_i=$cmp45_i125|$cmp46_i;
+ var $rst_1_i=$or_cond_i?$rst_0_i:$82;
+ var $cmp49_i=($83|0)==0;
+ var $shl52_i=$sizebits_0_i<<1;
+ if($cmp49_i){var $v_2_i=$v_1_i;var $rsize_2_i=$rsize_1_i;var $t_1_i=$rst_1_i;label=90;break;}else{var $v_0_i123=$v_1_i;var $rsize_0_i122=$rsize_1_i;var $t_0_i121=$83;var $sizebits_0_i=$shl52_i;var $rst_0_i=$rst_1_i;label=87;break;}
+ case 90: 
+ var $t_1_i;
+ var $rsize_2_i;
+ var $v_2_i;
+ var $cmp54_i=($t_1_i|0)==0;
+ var $cmp56_i=($v_2_i|0)==0;
+ var $or_cond18_i=$cmp54_i&$cmp56_i;
+ if($or_cond18_i){label=91;break;}else{var $t_2_ph_i=$t_1_i;label=93;break;}
+ case 91: 
+ var $shl59_i=2<<$idx_0_i;
+ var $sub62_i=(((-$shl59_i))|0);
+ var $or_i=$shl59_i|$sub62_i;
+ var $and63_i=$79&$or_i;
+ var $cmp64_i=($and63_i|0)==0;
+ if($cmp64_i){var $nb_0=$and144;label=160;break;}else{label=92;break;}
+ case 92: 
+ var $sub66_i=(((-$and63_i))|0);
+ var $and67_i=$and63_i&$sub66_i;
+ var $sub69_i=((($and67_i)-(1))|0);
+ var $shr71_i=$sub69_i>>>12;
+ var $and72_i=$shr71_i&16;
+ var $shr74_i=$sub69_i>>>($and72_i>>>0);
+ var $shr75_i=$shr74_i>>>5;
+ var $and76_i=$shr75_i&8;
+ var $add77_i=$and76_i|$and72_i;
+ var $shr78_i=$shr74_i>>>($and76_i>>>0);
+ var $shr79_i=$shr78_i>>>2;
+ var $and80_i=$shr79_i&4;
+ var $add81_i=$add77_i|$and80_i;
+ var $shr82_i=$shr78_i>>>($and80_i>>>0);
+ var $shr83_i=$shr82_i>>>1;
+ var $and84_i=$shr83_i&2;
+ var $add85_i=$add81_i|$and84_i;
+ var $shr86_i=$shr82_i>>>($and84_i>>>0);
+ var $shr87_i=$shr86_i>>>1;
+ var $and88_i=$shr87_i&1;
+ var $add89_i=$add85_i|$and88_i;
+ var $shr90_i=$shr86_i>>>($and88_i>>>0);
+ var $add91_i=((($add89_i)+($shr90_i))|0);
+ var $arrayidx93_i=((336+($add91_i<<2))|0);
+ var $84=HEAP32[(($arrayidx93_i)>>2)];
+ var $t_2_ph_i=$84;label=93;break;
+ case 93: 
+ var $t_2_ph_i;
+ var $cmp9623_i=($t_2_ph_i|0)==0;
+ if($cmp9623_i){var $rsize_3_lcssa_i=$rsize_2_i;var $v_3_lcssa_i=$v_2_i;label=96;break;}else{var $t_224_i=$t_2_ph_i;var $rsize_325_i=$rsize_2_i;var $v_326_i=$v_2_i;label=94;break;}
+ case 94: 
+ var $v_326_i;
+ var $rsize_325_i;
+ var $t_224_i;
+ var $head98_i=(($t_224_i+4)|0);
+ var $85=HEAP32[(($head98_i)>>2)];
+ var $and99_i=$85&-8;
+ var $sub100_i=((($and99_i)-($and144))|0);
+ var $cmp101_i=($sub100_i>>>0)<($rsize_325_i>>>0);
+ var $sub100_rsize_3_i=$cmp101_i?$sub100_i:$rsize_325_i;
+ var $t_2_v_3_i=$cmp101_i?$t_224_i:$v_326_i;
+ var $arrayidx105_i=(($t_224_i+16)|0);
+ var $86=HEAP32[(($arrayidx105_i)>>2)];
+ var $cmp106_i=($86|0)==0;
+ if($cmp106_i){label=95;break;}else{var $t_224_i=$86;var $rsize_325_i=$sub100_rsize_3_i;var $v_326_i=$t_2_v_3_i;label=94;break;}
+ case 95: 
+ var $arrayidx112_i=(($t_224_i+20)|0);
+ var $87=HEAP32[(($arrayidx112_i)>>2)];
+ var $cmp96_i=($87|0)==0;
+ if($cmp96_i){var $rsize_3_lcssa_i=$sub100_rsize_3_i;var $v_3_lcssa_i=$t_2_v_3_i;label=96;break;}else{var $t_224_i=$87;var $rsize_325_i=$sub100_rsize_3_i;var $v_326_i=$t_2_v_3_i;label=94;break;}
+ case 96: 
+ var $v_3_lcssa_i;
+ var $rsize_3_lcssa_i;
+ var $cmp115_i=($v_3_lcssa_i|0)==0;
+ if($cmp115_i){var $nb_0=$and144;label=160;break;}else{label=97;break;}
+ case 97: 
+ var $88=HEAP32[((40)>>2)];
+ var $sub117_i=((($88)-($and144))|0);
+ var $cmp118_i=($rsize_3_lcssa_i>>>0)<($sub117_i>>>0);
+ if($cmp118_i){label=98;break;}else{var $nb_0=$and144;label=160;break;}
+ case 98: 
+ var $89=$v_3_lcssa_i;
+ var $90=HEAP32[((48)>>2)];
+ var $cmp120_i=($89>>>0)<($90>>>0);
+ if($cmp120_i){label=158;break;}else{label=99;break;}
+ case 99: 
+ var $add_ptr_i128=(($89+$and144)|0);
+ var $91=$add_ptr_i128;
+ var $cmp122_i=($89>>>0)<($add_ptr_i128>>>0);
+ if($cmp122_i){label=100;break;}else{label=158;break;}
+ case 100: 
+ var $parent_i129=(($v_3_lcssa_i+24)|0);
+ var $92=HEAP32[(($parent_i129)>>2)];
+ var $bk_i130=(($v_3_lcssa_i+12)|0);
+ var $93=HEAP32[(($bk_i130)>>2)];
+ var $cmp127_i=($93|0)==($v_3_lcssa_i|0);
+ if($cmp127_i){label=106;break;}else{label=101;break;}
+ case 101: 
+ var $fd_i131=(($v_3_lcssa_i+8)|0);
+ var $94=HEAP32[(($fd_i131)>>2)];
+ var $95=$94;
+ var $cmp132_i=($95>>>0)<($90>>>0);
+ if($cmp132_i){label=105;break;}else{label=102;break;}
+ case 102: 
+ var $bk135_i=(($94+12)|0);
+ var $96=HEAP32[(($bk135_i)>>2)];
+ var $cmp136_i=($96|0)==($v_3_lcssa_i|0);
+ if($cmp136_i){label=103;break;}else{label=105;break;}
+ case 103: 
+ var $fd138_i=(($93+8)|0);
+ var $97=HEAP32[(($fd138_i)>>2)];
+ var $cmp139_i=($97|0)==($v_3_lcssa_i|0);
+ if($cmp139_i){label=104;break;}else{label=105;break;}
+ case 104: 
+ HEAP32[(($bk135_i)>>2)]=$93;
+ HEAP32[(($fd138_i)>>2)]=$94;
+ var $R_1_i139=$93;label=113;break;
+ case 105: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 106: 
+ var $arrayidx150_i=(($v_3_lcssa_i+20)|0);
+ var $98=HEAP32[(($arrayidx150_i)>>2)];
+ var $cmp151_i=($98|0)==0;
+ if($cmp151_i){label=107;break;}else{var $R_0_i137=$98;var $RP_0_i136=$arrayidx150_i;label=108;break;}
+ case 107: 
+ var $arrayidx154_i133=(($v_3_lcssa_i+16)|0);
+ var $99=HEAP32[(($arrayidx154_i133)>>2)];
+ var $cmp155_i134=($99|0)==0;
+ if($cmp155_i134){var $R_1_i139=0;label=113;break;}else{var $R_0_i137=$99;var $RP_0_i136=$arrayidx154_i133;label=108;break;}
+ case 108: 
+ var $RP_0_i136;
+ var $R_0_i137;
+ var $arrayidx160_i=(($R_0_i137+20)|0);
+ var $100=HEAP32[(($arrayidx160_i)>>2)];
+ var $cmp161_i=($100|0)==0;
+ if($cmp161_i){label=109;break;}else{var $R_0_i137=$100;var $RP_0_i136=$arrayidx160_i;label=108;break;}
+ case 109: 
+ var $arrayidx164_i=(($R_0_i137+16)|0);
+ var $101=HEAP32[(($arrayidx164_i)>>2)];
+ var $cmp165_i=($101|0)==0;
+ if($cmp165_i){label=110;break;}else{var $R_0_i137=$101;var $RP_0_i136=$arrayidx164_i;label=108;break;}
+ case 110: 
+ var $102=$RP_0_i136;
+ var $cmp170_i=($102>>>0)<($90>>>0);
+ if($cmp170_i){label=112;break;}else{label=111;break;}
+ case 111: 
+ HEAP32[(($RP_0_i136)>>2)]=0;
+ var $R_1_i139=$R_0_i137;label=113;break;
+ case 112: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 113: 
+ var $R_1_i139;
+ var $cmp179_i=($92|0)==0;
+ if($cmp179_i){label=133;break;}else{label=114;break;}
+ case 114: 
+ var $index_i140=(($v_3_lcssa_i+28)|0);
+ var $103=HEAP32[(($index_i140)>>2)];
+ var $arrayidx183_i=((336+($103<<2))|0);
+ var $104=HEAP32[(($arrayidx183_i)>>2)];
+ var $cmp184_i=($v_3_lcssa_i|0)==($104|0);
+ if($cmp184_i){label=115;break;}else{label=117;break;}
+ case 115: 
+ HEAP32[(($arrayidx183_i)>>2)]=$R_1_i139;
+ var $cond20_i=($R_1_i139|0)==0;
+ if($cond20_i){label=116;break;}else{label=123;break;}
+ case 116: 
+ var $105=HEAP32[(($index_i140)>>2)];
+ var $shl191_i=1<<$105;
+ var $neg_i141=$shl191_i^-1;
+ var $106=HEAP32[((36)>>2)];
+ var $and193_i=$106&$neg_i141;
+ HEAP32[((36)>>2)]=$and193_i;
+ label=133;break;
+ case 117: 
+ var $107=$92;
+ var $108=HEAP32[((48)>>2)];
+ var $cmp197_i=($107>>>0)<($108>>>0);
+ if($cmp197_i){label=121;break;}else{label=118;break;}
+ case 118: 
+ var $arrayidx203_i=(($92+16)|0);
+ var $109=HEAP32[(($arrayidx203_i)>>2)];
+ var $cmp204_i=($109|0)==($v_3_lcssa_i|0);
+ if($cmp204_i){label=119;break;}else{label=120;break;}
+ case 119: 
+ HEAP32[(($arrayidx203_i)>>2)]=$R_1_i139;
+ label=122;break;
+ case 120: 
+ var $arrayidx211_i=(($92+20)|0);
+ HEAP32[(($arrayidx211_i)>>2)]=$R_1_i139;
+ label=122;break;
+ case 121: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 122: 
+ var $cmp216_i=($R_1_i139|0)==0;
+ if($cmp216_i){label=133;break;}else{label=123;break;}
+ case 123: 
+ var $110=$R_1_i139;
+ var $111=HEAP32[((48)>>2)];
+ var $cmp220_i=($110>>>0)<($111>>>0);
+ if($cmp220_i){label=132;break;}else{label=124;break;}
+ case 124: 
+ var $parent225_i=(($R_1_i139+24)|0);
+ HEAP32[(($parent225_i)>>2)]=$92;
+ var $arrayidx227_i=(($v_3_lcssa_i+16)|0);
+ var $112=HEAP32[(($arrayidx227_i)>>2)];
+ var $cmp228_i=($112|0)==0;
+ if($cmp228_i){label=128;break;}else{label=125;break;}
+ case 125: 
+ var $113=$112;
+ var $114=HEAP32[((48)>>2)];
+ var $cmp232_i=($113>>>0)<($114>>>0);
+ if($cmp232_i){label=127;break;}else{label=126;break;}
+ case 126: 
+ var $arrayidx238_i=(($R_1_i139+16)|0);
+ HEAP32[(($arrayidx238_i)>>2)]=$112;
+ var $parent239_i=(($112+24)|0);
+ HEAP32[(($parent239_i)>>2)]=$R_1_i139;
+ label=128;break;
+ case 127: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 128: 
+ var $arrayidx244_i=(($v_3_lcssa_i+20)|0);
+ var $115=HEAP32[(($arrayidx244_i)>>2)];
+ var $cmp245_i=($115|0)==0;
+ if($cmp245_i){label=133;break;}else{label=129;break;}
+ case 129: 
+ var $116=$115;
+ var $117=HEAP32[((48)>>2)];
+ var $cmp249_i=($116>>>0)<($117>>>0);
+ if($cmp249_i){label=131;break;}else{label=130;break;}
+ case 130: 
+ var $arrayidx255_i=(($R_1_i139+20)|0);
+ HEAP32[(($arrayidx255_i)>>2)]=$115;
+ var $parent256_i=(($115+24)|0);
+ HEAP32[(($parent256_i)>>2)]=$R_1_i139;
+ label=133;break;
+ case 131: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 132: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 133: 
+ var $cmp264_i=($rsize_3_lcssa_i>>>0)<16;
+ if($cmp264_i){label=134;break;}else{label=135;break;}
+ case 134: 
+ var $add267_i=((($rsize_3_lcssa_i)+($and144))|0);
+ var $or269_i=$add267_i|3;
+ var $head270_i=(($v_3_lcssa_i+4)|0);
+ HEAP32[(($head270_i)>>2)]=$or269_i;
+ var $add_ptr272_sum_i=((($add267_i)+(4))|0);
+ var $head273_i=(($89+$add_ptr272_sum_i)|0);
+ var $118=$head273_i;
+ var $119=HEAP32[(($118)>>2)];
+ var $or274_i=$119|1;
+ HEAP32[(($118)>>2)]=$or274_i;
+ label=159;break;
+ case 135: 
+ var $or277_i=$and144|3;
+ var $head278_i=(($v_3_lcssa_i+4)|0);
+ HEAP32[(($head278_i)>>2)]=$or277_i;
+ var $or279_i=$rsize_3_lcssa_i|1;
+ var $add_ptr_sum_i143174=$and144|4;
+ var $head280_i=(($89+$add_ptr_sum_i143174)|0);
+ var $120=$head280_i;
+ HEAP32[(($120)>>2)]=$or279_i;
+ var $add_ptr_sum1_i144=((($rsize_3_lcssa_i)+($and144))|0);
+ var $add_ptr281_i=(($89+$add_ptr_sum1_i144)|0);
+ var $prev_foot_i145=$add_ptr281_i;
+ HEAP32[(($prev_foot_i145)>>2)]=$rsize_3_lcssa_i;
+ var $shr282_i=$rsize_3_lcssa_i>>>3;
+ var $cmp283_i=($rsize_3_lcssa_i>>>0)<256;
+ if($cmp283_i){label=136;break;}else{label=141;break;}
+ case 136: 
+ var $shl287_i=$shr282_i<<1;
+ var $arrayidx288_i=((72+($shl287_i<<2))|0);
+ var $121=$arrayidx288_i;
+ var $122=HEAP32[((32)>>2)];
+ var $shl290_i=1<<$shr282_i;
+ var $and291_i=$122&$shl290_i;
+ var $tobool292_i=($and291_i|0)==0;
+ if($tobool292_i){label=137;break;}else{label=138;break;}
+ case 137: 
+ var $or296_i=$122|$shl290_i;
+ HEAP32[((32)>>2)]=$or296_i;
+ var $arrayidx288_sum_pre_i=((($shl287_i)+(2))|0);
+ var $_pre_i146=((72+($arrayidx288_sum_pre_i<<2))|0);
+ var $F289_0_i=$121;var $_pre_phi_i147=$_pre_i146;label=140;break;
+ case 138: 
+ var $arrayidx288_sum16_i=((($shl287_i)+(2))|0);
+ var $123=((72+($arrayidx288_sum16_i<<2))|0);
+ var $124=HEAP32[(($123)>>2)];
+ var $125=$124;
+ var $126=HEAP32[((48)>>2)];
+ var $cmp300_i=($125>>>0)<($126>>>0);
+ if($cmp300_i){label=139;break;}else{var $F289_0_i=$124;var $_pre_phi_i147=$123;label=140;break;}
+ case 139: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 140: 
+ var $_pre_phi_i147;
+ var $F289_0_i;
+ HEAP32[(($_pre_phi_i147)>>2)]=$91;
+ var $bk310_i=(($F289_0_i+12)|0);
+ HEAP32[(($bk310_i)>>2)]=$91;
+ var $add_ptr_sum14_i=((($and144)+(8))|0);
+ var $fd311_i=(($89+$add_ptr_sum14_i)|0);
+ var $127=$fd311_i;
+ HEAP32[(($127)>>2)]=$F289_0_i;
+ var $add_ptr_sum15_i=((($and144)+(12))|0);
+ var $bk312_i=(($89+$add_ptr_sum15_i)|0);
+ var $128=$bk312_i;
+ HEAP32[(($128)>>2)]=$121;
+ label=159;break;
+ case 141: 
+ var $129=$add_ptr_i128;
+ var $shr317_i=$rsize_3_lcssa_i>>>8;
+ var $cmp318_i=($shr317_i|0)==0;
+ if($cmp318_i){var $I315_0_i=0;label=144;break;}else{label=142;break;}
+ case 142: 
+ var $cmp322_i=($rsize_3_lcssa_i>>>0)>16777215;
+ if($cmp322_i){var $I315_0_i=31;label=144;break;}else{label=143;break;}
+ case 143: 
+ var $sub328_i=((($shr317_i)+(1048320))|0);
+ var $shr329_i=$sub328_i>>>16;
+ var $and330_i=$shr329_i&8;
+ var $shl332_i=$shr317_i<<$and330_i;
+ var $sub333_i=((($shl332_i)+(520192))|0);
+ var $shr334_i=$sub333_i>>>16;
+ var $and335_i=$shr334_i&4;
+ var $add336_i=$and335_i|$and330_i;
+ var $shl337_i=$shl332_i<<$and335_i;
+ var $sub338_i=((($shl337_i)+(245760))|0);
+ var $shr339_i=$sub338_i>>>16;
+ var $and340_i=$shr339_i&2;
+ var $add341_i=$add336_i|$and340_i;
+ var $sub342_i=(((14)-($add341_i))|0);
+ var $shl343_i=$shl337_i<<$and340_i;
+ var $shr344_i=$shl343_i>>>15;
+ var $add345_i=((($sub342_i)+($shr344_i))|0);
+ var $shl346_i=$add345_i<<1;
+ var $add347_i=((($add345_i)+(7))|0);
+ var $shr348_i=$rsize_3_lcssa_i>>>($add347_i>>>0);
+ var $and349_i=$shr348_i&1;
+ var $add350_i=$and349_i|$shl346_i;
+ var $I315_0_i=$add350_i;label=144;break;
+ case 144: 
+ var $I315_0_i;
+ var $arrayidx354_i=((336+($I315_0_i<<2))|0);
+ var $add_ptr_sum2_i=((($and144)+(28))|0);
+ var $index355_i=(($89+$add_ptr_sum2_i)|0);
+ var $130=$index355_i;
+ HEAP32[(($130)>>2)]=$I315_0_i;
+ var $add_ptr_sum3_i=((($and144)+(16))|0);
+ var $child356_i=(($89+$add_ptr_sum3_i)|0);
+ var $child356_sum_i=((($and144)+(20))|0);
+ var $arrayidx357_i=(($89+$child356_sum_i)|0);
+ var $131=$arrayidx357_i;
+ HEAP32[(($131)>>2)]=0;
+ var $arrayidx359_i=$child356_i;
+ HEAP32[(($arrayidx359_i)>>2)]=0;
+ var $132=HEAP32[((36)>>2)];
+ var $shl361_i=1<<$I315_0_i;
+ var $and362_i=$132&$shl361_i;
+ var $tobool363_i=($and362_i|0)==0;
+ if($tobool363_i){label=145;break;}else{label=146;break;}
+ case 145: 
+ var $or367_i=$132|$shl361_i;
+ HEAP32[((36)>>2)]=$or367_i;
+ HEAP32[(($arrayidx354_i)>>2)]=$129;
+ var $133=$arrayidx354_i;
+ var $add_ptr_sum4_i=((($and144)+(24))|0);
+ var $parent368_i=(($89+$add_ptr_sum4_i)|0);
+ var $134=$parent368_i;
+ HEAP32[(($134)>>2)]=$133;
+ var $add_ptr_sum5_i=((($and144)+(12))|0);
+ var $bk369_i=(($89+$add_ptr_sum5_i)|0);
+ var $135=$bk369_i;
+ HEAP32[(($135)>>2)]=$129;
+ var $add_ptr_sum6_i=((($and144)+(8))|0);
+ var $fd370_i=(($89+$add_ptr_sum6_i)|0);
+ var $136=$fd370_i;
+ HEAP32[(($136)>>2)]=$129;
+ label=159;break;
+ case 146: 
+ var $137=HEAP32[(($arrayidx354_i)>>2)];
+ var $cmp373_i=($I315_0_i|0)==31;
+ if($cmp373_i){var $cond382_i=0;label=148;break;}else{label=147;break;}
+ case 147: 
+ var $shr377_i=$I315_0_i>>>1;
+ var $sub380_i=(((25)-($shr377_i))|0);
+ var $cond382_i=$sub380_i;label=148;break;
+ case 148: 
+ var $cond382_i;
+ var $shl383_i=$rsize_3_lcssa_i<<$cond382_i;
+ var $K372_0_i=$shl383_i;var $T_0_i=$137;label=149;break;
+ case 149: 
+ var $T_0_i;
+ var $K372_0_i;
+ var $head385_i=(($T_0_i+4)|0);
+ var $138=HEAP32[(($head385_i)>>2)];
+ var $and386_i=$138&-8;
+ var $cmp387_i=($and386_i|0)==($rsize_3_lcssa_i|0);
+ if($cmp387_i){label=154;break;}else{label=150;break;}
+ case 150: 
+ var $shr390_i=$K372_0_i>>>31;
+ var $arrayidx393_i=(($T_0_i+16+($shr390_i<<2))|0);
+ var $139=HEAP32[(($arrayidx393_i)>>2)];
+ var $cmp395_i=($139|0)==0;
+ var $shl394_i=$K372_0_i<<1;
+ if($cmp395_i){label=151;break;}else{var $K372_0_i=$shl394_i;var $T_0_i=$139;label=149;break;}
+ case 151: 
+ var $140=$arrayidx393_i;
+ var $141=HEAP32[((48)>>2)];
+ var $cmp400_i=($140>>>0)<($141>>>0);
+ if($cmp400_i){label=153;break;}else{label=152;break;}
+ case 152: 
+ HEAP32[(($arrayidx393_i)>>2)]=$129;
+ var $add_ptr_sum11_i=((($and144)+(24))|0);
+ var $parent405_i=(($89+$add_ptr_sum11_i)|0);
+ var $142=$parent405_i;
+ HEAP32[(($142)>>2)]=$T_0_i;
+ var $add_ptr_sum12_i=((($and144)+(12))|0);
+ var $bk406_i=(($89+$add_ptr_sum12_i)|0);
+ var $143=$bk406_i;
+ HEAP32[(($143)>>2)]=$129;
+ var $add_ptr_sum13_i=((($and144)+(8))|0);
+ var $fd407_i=(($89+$add_ptr_sum13_i)|0);
+ var $144=$fd407_i;
+ HEAP32[(($144)>>2)]=$129;
+ label=159;break;
+ case 153: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 154: 
+ var $fd412_i=(($T_0_i+8)|0);
+ var $145=HEAP32[(($fd412_i)>>2)];
+ var $146=$T_0_i;
+ var $147=HEAP32[((48)>>2)];
+ var $cmp414_i=($146>>>0)<($147>>>0);
+ if($cmp414_i){label=157;break;}else{label=155;break;}
+ case 155: 
+ var $148=$145;
+ var $cmp418_i=($148>>>0)<($147>>>0);
+ if($cmp418_i){label=157;break;}else{label=156;break;}
+ case 156: 
+ var $bk425_i=(($145+12)|0);
+ HEAP32[(($bk425_i)>>2)]=$129;
+ HEAP32[(($fd412_i)>>2)]=$129;
+ var $add_ptr_sum8_i=((($and144)+(8))|0);
+ var $fd427_i=(($89+$add_ptr_sum8_i)|0);
+ var $149=$fd427_i;
+ HEAP32[(($149)>>2)]=$145;
+ var $add_ptr_sum9_i=((($and144)+(12))|0);
+ var $bk428_i=(($89+$add_ptr_sum9_i)|0);
+ var $150=$bk428_i;
+ HEAP32[(($150)>>2)]=$T_0_i;
+ var $add_ptr_sum10_i=((($and144)+(24))|0);
+ var $parent429_i=(($89+$add_ptr_sum10_i)|0);
+ var $151=$parent429_i;
+ HEAP32[(($151)>>2)]=0;
+ label=159;break;
+ case 157: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 158: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 159: 
+ var $add_ptr436_i=(($v_3_lcssa_i+8)|0);
+ var $152=$add_ptr436_i;
+ var $cmp149=($add_ptr436_i|0)==0;
+ if($cmp149){var $nb_0=$and144;label=160;break;}else{var $mem_0=$152;label=341;break;}
+ case 160: 
+ var $nb_0;
+ var $153=HEAP32[((40)>>2)];
+ var $cmp155=($nb_0>>>0)>($153>>>0);
+ if($cmp155){label=165;break;}else{label=161;break;}
+ case 161: 
+ var $sub159=((($153)-($nb_0))|0);
+ var $154=HEAP32[((52)>>2)];
+ var $cmp161=($sub159>>>0)>15;
+ if($cmp161){label=162;break;}else{label=163;break;}
+ case 162: 
+ var $155=$154;
+ var $add_ptr165=(($155+$nb_0)|0);
+ var $156=$add_ptr165;
+ HEAP32[((52)>>2)]=$156;
+ HEAP32[((40)>>2)]=$sub159;
+ var $or166=$sub159|1;
+ var $add_ptr165_sum=((($nb_0)+(4))|0);
+ var $head167=(($155+$add_ptr165_sum)|0);
+ var $157=$head167;
+ HEAP32[(($157)>>2)]=$or166;
+ var $add_ptr168=(($155+$153)|0);
+ var $prev_foot169=$add_ptr168;
+ HEAP32[(($prev_foot169)>>2)]=$sub159;
+ var $or171=$nb_0|3;
+ var $head172=(($154+4)|0);
+ HEAP32[(($head172)>>2)]=$or171;
+ label=164;break;
+ case 163: 
+ HEAP32[((40)>>2)]=0;
+ HEAP32[((52)>>2)]=0;
+ var $or175=$153|3;
+ var $head176=(($154+4)|0);
+ HEAP32[(($head176)>>2)]=$or175;
+ var $158=$154;
+ var $add_ptr177_sum=((($153)+(4))|0);
+ var $head178=(($158+$add_ptr177_sum)|0);
+ var $159=$head178;
+ var $160=HEAP32[(($159)>>2)];
+ var $or179=$160|1;
+ HEAP32[(($159)>>2)]=$or179;
+ label=164;break;
+ case 164: 
+ var $add_ptr181=(($154+8)|0);
+ var $161=$add_ptr181;
+ var $mem_0=$161;label=341;break;
+ case 165: 
+ var $162=HEAP32[((44)>>2)];
+ var $cmp183=($nb_0>>>0)<($162>>>0);
+ if($cmp183){label=166;break;}else{label=167;break;}
+ case 166: 
+ var $sub187=((($162)-($nb_0))|0);
+ HEAP32[((44)>>2)]=$sub187;
+ var $163=HEAP32[((56)>>2)];
+ var $164=$163;
+ var $add_ptr190=(($164+$nb_0)|0);
+ var $165=$add_ptr190;
+ HEAP32[((56)>>2)]=$165;
+ var $or191=$sub187|1;
+ var $add_ptr190_sum=((($nb_0)+(4))|0);
+ var $head192=(($164+$add_ptr190_sum)|0);
+ var $166=$head192;
+ HEAP32[(($166)>>2)]=$or191;
+ var $or194=$nb_0|3;
+ var $head195=(($163+4)|0);
+ HEAP32[(($head195)>>2)]=$or194;
+ var $add_ptr196=(($163+8)|0);
+ var $167=$add_ptr196;
+ var $mem_0=$167;label=341;break;
+ case 167: 
+ var $168=HEAP32[((8)>>2)];
+ var $cmp_i148=($168|0)==0;
+ if($cmp_i148){label=168;break;}else{label=171;break;}
+ case 168: 
+ var $call_i_i=_sysconf(30);
+ var $sub_i_i=((($call_i_i)-(1))|0);
+ var $and_i_i=$sub_i_i&$call_i_i;
+ var $cmp1_i_i=($and_i_i|0)==0;
+ if($cmp1_i_i){label=170;break;}else{label=169;break;}
+ case 169: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 170: 
+ HEAP32[((16)>>2)]=$call_i_i;
+ HEAP32[((12)>>2)]=$call_i_i;
+ HEAP32[((20)>>2)]=-1;
+ HEAP32[((24)>>2)]=-1;
+ HEAP32[((28)>>2)]=0;
+ HEAP32[((476)>>2)]=0;
+ var $call6_i_i=_time(0);
+ var $xor_i_i=$call6_i_i&-16;
+ var $and7_i_i=$xor_i_i^1431655768;
+ HEAP32[((8)>>2)]=$and7_i_i;
+ label=171;break;
+ case 171: 
+ var $add_i149=((($nb_0)+(48))|0);
+ var $169=HEAP32[((16)>>2)];
+ var $sub_i150=((($nb_0)+(47))|0);
+ var $add9_i=((($169)+($sub_i150))|0);
+ var $neg_i151=(((-$169))|0);
+ var $and11_i=$add9_i&$neg_i151;
+ var $cmp12_i=($and11_i>>>0)>($nb_0>>>0);
+ if($cmp12_i){label=172;break;}else{var $mem_0=0;label=341;break;}
+ case 172: 
+ var $170=HEAP32[((472)>>2)];
+ var $cmp15_i=($170|0)==0;
+ if($cmp15_i){label=174;break;}else{label=173;break;}
+ case 173: 
+ var $171=HEAP32[((464)>>2)];
+ var $add17_i152=((($171)+($and11_i))|0);
+ var $cmp19_i=($add17_i152>>>0)<=($171>>>0);
+ var $cmp21_i=($add17_i152>>>0)>($170>>>0);
+ var $or_cond1_i=$cmp19_i|$cmp21_i;
+ if($or_cond1_i){var $mem_0=0;label=341;break;}else{label=174;break;}
+ case 174: 
+ var $172=HEAP32[((476)>>2)];
+ var $and26_i=$172&4;
+ var $tobool27_i=($and26_i|0)==0;
+ if($tobool27_i){label=175;break;}else{var $tsize_1_i=0;label=198;break;}
+ case 175: 
+ var $173=HEAP32[((56)>>2)];
+ var $cmp29_i=($173|0)==0;
+ if($cmp29_i){label=181;break;}else{label=176;break;}
+ case 176: 
+ var $174=$173;
+ var $sp_0_i_i=480;label=177;break;
+ case 177: 
+ var $sp_0_i_i;
+ var $base_i_i=(($sp_0_i_i)|0);
+ var $175=HEAP32[(($base_i_i)>>2)];
+ var $cmp_i9_i=($175>>>0)>($174>>>0);
+ if($cmp_i9_i){label=179;break;}else{label=178;break;}
+ case 178: 
+ var $size_i_i=(($sp_0_i_i+4)|0);
+ var $176=HEAP32[(($size_i_i)>>2)];
+ var $add_ptr_i_i=(($175+$176)|0);
+ var $cmp2_i_i=($add_ptr_i_i>>>0)>($174>>>0);
+ if($cmp2_i_i){label=180;break;}else{label=179;break;}
+ case 179: 
+ var $next_i_i=(($sp_0_i_i+8)|0);
+ var $177=HEAP32[(($next_i_i)>>2)];
+ var $cmp3_i_i=($177|0)==0;
+ if($cmp3_i_i){label=181;break;}else{var $sp_0_i_i=$177;label=177;break;}
+ case 180: 
+ var $cmp32_i154=($sp_0_i_i|0)==0;
+ if($cmp32_i154){label=181;break;}else{label=188;break;}
+ case 181: 
+ var $call34_i=_sbrk(0);
+ var $cmp35_i156=($call34_i|0)==-1;
+ if($cmp35_i156){var $tsize_0758385_i=0;label=197;break;}else{label=182;break;}
+ case 182: 
+ var $178=$call34_i;
+ var $179=HEAP32[((12)>>2)];
+ var $sub38_i=((($179)-(1))|0);
+ var $and39_i=$sub38_i&$178;
+ var $cmp40_i157=($and39_i|0)==0;
+ if($cmp40_i157){var $ssize_0_i=$and11_i;label=184;break;}else{label=183;break;}
+ case 183: 
+ var $add43_i=((($sub38_i)+($178))|0);
+ var $neg45_i=(((-$179))|0);
+ var $and46_i=$add43_i&$neg45_i;
+ var $sub47_i=((($and11_i)-($178))|0);
+ var $add48_i=((($sub47_i)+($and46_i))|0);
+ var $ssize_0_i=$add48_i;label=184;break;
+ case 184: 
+ var $ssize_0_i;
+ var $180=HEAP32[((464)>>2)];
+ var $add51_i=((($180)+($ssize_0_i))|0);
+ var $cmp52_i=($ssize_0_i>>>0)>($nb_0>>>0);
+ var $cmp54_i158=($ssize_0_i>>>0)<2147483647;
+ var $or_cond_i159=$cmp52_i&$cmp54_i158;
+ if($or_cond_i159){label=185;break;}else{var $tsize_0758385_i=0;label=197;break;}
+ case 185: 
+ var $181=HEAP32[((472)>>2)];
+ var $cmp57_i=($181|0)==0;
+ if($cmp57_i){label=187;break;}else{label=186;break;}
+ case 186: 
+ var $cmp60_i=($add51_i>>>0)<=($180>>>0);
+ var $cmp63_i=($add51_i>>>0)>($181>>>0);
+ var $or_cond2_i=$cmp60_i|$cmp63_i;
+ if($or_cond2_i){var $tsize_0758385_i=0;label=197;break;}else{label=187;break;}
+ case 187: 
+ var $call65_i=_sbrk($ssize_0_i);
+ var $cmp66_i160=($call65_i|0)==($call34_i|0);
+ var $ssize_0__i=$cmp66_i160?$ssize_0_i:0;
+ var $call34__i=$cmp66_i160?$call34_i:-1;
+ var $tbase_0_i=$call34__i;var $tsize_0_i=$ssize_0__i;var $br_0_i=$call65_i;var $ssize_1_i=$ssize_0_i;label=190;break;
+ case 188: 
+ var $182=HEAP32[((44)>>2)];
+ var $add74_i=((($add9_i)-($182))|0);
+ var $and77_i=$add74_i&$neg_i151;
+ var $cmp78_i=($and77_i>>>0)<2147483647;
+ if($cmp78_i){label=189;break;}else{var $tsize_0758385_i=0;label=197;break;}
+ case 189: 
+ var $call80_i=_sbrk($and77_i);
+ var $183=HEAP32[(($base_i_i)>>2)];
+ var $184=HEAP32[(($size_i_i)>>2)];
+ var $add_ptr_i162=(($183+$184)|0);
+ var $cmp82_i=($call80_i|0)==($add_ptr_i162|0);
+ var $and77__i=$cmp82_i?$and77_i:0;
+ var $call80__i=$cmp82_i?$call80_i:-1;
+ var $tbase_0_i=$call80__i;var $tsize_0_i=$and77__i;var $br_0_i=$call80_i;var $ssize_1_i=$and77_i;label=190;break;
+ case 190: 
+ var $ssize_1_i;
+ var $br_0_i;
+ var $tsize_0_i;
+ var $tbase_0_i;
+ var $sub109_i=(((-$ssize_1_i))|0);
+ var $cmp86_i=($tbase_0_i|0)==-1;
+ if($cmp86_i){label=191;break;}else{var $tsize_291_i=$tsize_0_i;var $tbase_292_i=$tbase_0_i;label=201;break;}
+ case 191: 
+ var $cmp88_i=($br_0_i|0)!=-1;
+ var $cmp90_i163=($ssize_1_i>>>0)<2147483647;
+ var $or_cond3_i=$cmp88_i&$cmp90_i163;
+ var $cmp93_i=($ssize_1_i>>>0)<($add_i149>>>0);
+ var $or_cond4_i=$or_cond3_i&$cmp93_i;
+ if($or_cond4_i){label=192;break;}else{var $ssize_2_i=$ssize_1_i;label=196;break;}
+ case 192: 
+ var $185=HEAP32[((16)>>2)];
+ var $sub96_i=((($sub_i150)-($ssize_1_i))|0);
+ var $add98_i=((($sub96_i)+($185))|0);
+ var $neg100_i=(((-$185))|0);
+ var $and101_i=$add98_i&$neg100_i;
+ var $cmp102_i=($and101_i>>>0)<2147483647;
+ if($cmp102_i){label=193;break;}else{var $ssize_2_i=$ssize_1_i;label=196;break;}
+ case 193: 
+ var $call104_i=_sbrk($and101_i);
+ var $cmp105_i=($call104_i|0)==-1;
+ if($cmp105_i){label=195;break;}else{label=194;break;}
+ case 194: 
+ var $add107_i=((($and101_i)+($ssize_1_i))|0);
+ var $ssize_2_i=$add107_i;label=196;break;
+ case 195: 
+ var $call110_i=_sbrk($sub109_i);
+ var $tsize_0758385_i=$tsize_0_i;label=197;break;
+ case 196: 
+ var $ssize_2_i;
+ var $cmp115_i164=($br_0_i|0)==-1;
+ if($cmp115_i164){var $tsize_0758385_i=$tsize_0_i;label=197;break;}else{var $tsize_291_i=$ssize_2_i;var $tbase_292_i=$br_0_i;label=201;break;}
+ case 197: 
+ var $tsize_0758385_i;
+ var $186=HEAP32[((476)>>2)];
+ var $or_i165=$186|4;
+ HEAP32[((476)>>2)]=$or_i165;
+ var $tsize_1_i=$tsize_0758385_i;label=198;break;
+ case 198: 
+ var $tsize_1_i;
+ var $cmp124_i=($and11_i>>>0)<2147483647;
+ if($cmp124_i){label=199;break;}else{label=340;break;}
+ case 199: 
+ var $call128_i=_sbrk($and11_i);
+ var $call129_i=_sbrk(0);
+ var $notlhs_i=($call128_i|0)!=-1;
+ var $notrhs_i=($call129_i|0)!=-1;
+ var $or_cond6_not_i=$notrhs_i&$notlhs_i;
+ var $cmp134_i=($call128_i>>>0)<($call129_i>>>0);
+ var $or_cond7_i=$or_cond6_not_i&$cmp134_i;
+ if($or_cond7_i){label=200;break;}else{label=340;break;}
+ case 200: 
+ var $sub_ptr_lhs_cast_i=$call129_i;
+ var $sub_ptr_rhs_cast_i=$call128_i;
+ var $sub_ptr_sub_i=((($sub_ptr_lhs_cast_i)-($sub_ptr_rhs_cast_i))|0);
+ var $add137_i=((($nb_0)+(40))|0);
+ var $cmp138_i166=($sub_ptr_sub_i>>>0)>($add137_i>>>0);
+ var $sub_ptr_sub_tsize_1_i=$cmp138_i166?$sub_ptr_sub_i:$tsize_1_i;
+ var $call128_tbase_1_i=$cmp138_i166?$call128_i:-1;
+ var $cmp144_i=($call128_tbase_1_i|0)==-1;
+ if($cmp144_i){label=340;break;}else{var $tsize_291_i=$sub_ptr_sub_tsize_1_i;var $tbase_292_i=$call128_tbase_1_i;label=201;break;}
+ case 201: 
+ var $tbase_292_i;
+ var $tsize_291_i;
+ var $187=HEAP32[((464)>>2)];
+ var $add147_i=((($187)+($tsize_291_i))|0);
+ HEAP32[((464)>>2)]=$add147_i;
+ var $188=HEAP32[((468)>>2)];
+ var $cmp148_i=($add147_i>>>0)>($188>>>0);
+ if($cmp148_i){label=202;break;}else{label=203;break;}
+ case 202: 
+ HEAP32[((468)>>2)]=$add147_i;
+ label=203;break;
+ case 203: 
+ var $189=HEAP32[((56)>>2)];
+ var $cmp154_i=($189|0)==0;
+ if($cmp154_i){label=204;break;}else{var $sp_0105_i=480;label=211;break;}
+ case 204: 
+ var $190=HEAP32[((48)>>2)];
+ var $cmp156_i=($190|0)==0;
+ var $cmp159_i168=($tbase_292_i>>>0)<($190>>>0);
+ var $or_cond8_i=$cmp156_i|$cmp159_i168;
+ if($or_cond8_i){label=205;break;}else{label=206;break;}
+ case 205: 
+ HEAP32[((48)>>2)]=$tbase_292_i;
+ label=206;break;
+ case 206: 
+ HEAP32[((480)>>2)]=$tbase_292_i;
+ HEAP32[((484)>>2)]=$tsize_291_i;
+ HEAP32[((492)>>2)]=0;
+ var $191=HEAP32[((8)>>2)];
+ HEAP32[((68)>>2)]=$191;
+ HEAP32[((64)>>2)]=-1;
+ var $i_02_i_i=0;label=207;break;
+ case 207: 
+ var $i_02_i_i;
+ var $shl_i_i=$i_02_i_i<<1;
+ var $arrayidx_i_i=((72+($shl_i_i<<2))|0);
+ var $192=$arrayidx_i_i;
+ var $arrayidx_sum_i_i=((($shl_i_i)+(3))|0);
+ var $193=((72+($arrayidx_sum_i_i<<2))|0);
+ HEAP32[(($193)>>2)]=$192;
+ var $arrayidx_sum1_i_i=((($shl_i_i)+(2))|0);
+ var $194=((72+($arrayidx_sum1_i_i<<2))|0);
+ HEAP32[(($194)>>2)]=$192;
+ var $inc_i_i=((($i_02_i_i)+(1))|0);
+ var $cmp_i11_i=($inc_i_i>>>0)<32;
+ if($cmp_i11_i){var $i_02_i_i=$inc_i_i;label=207;break;}else{label=208;break;}
+ case 208: 
+ var $sub169_i=((($tsize_291_i)-(40))|0);
+ var $add_ptr_i12_i=(($tbase_292_i+8)|0);
+ var $195=$add_ptr_i12_i;
+ var $and_i13_i=$195&7;
+ var $cmp_i14_i=($and_i13_i|0)==0;
+ if($cmp_i14_i){var $cond_i_i=0;label=210;break;}else{label=209;break;}
+ case 209: 
+ var $196=(((-$195))|0);
+ var $and3_i_i=$196&7;
+ var $cond_i_i=$and3_i_i;label=210;break;
+ case 210: 
+ var $cond_i_i;
+ var $add_ptr4_i_i=(($tbase_292_i+$cond_i_i)|0);
+ var $197=$add_ptr4_i_i;
+ var $sub5_i_i=((($sub169_i)-($cond_i_i))|0);
+ HEAP32[((56)>>2)]=$197;
+ HEAP32[((44)>>2)]=$sub5_i_i;
+ var $or_i_i=$sub5_i_i|1;
+ var $add_ptr4_sum_i_i=((($cond_i_i)+(4))|0);
+ var $head_i_i=(($tbase_292_i+$add_ptr4_sum_i_i)|0);
+ var $198=$head_i_i;
+ HEAP32[(($198)>>2)]=$or_i_i;
+ var $add_ptr6_sum_i_i=((($tsize_291_i)-(36))|0);
+ var $head7_i_i=(($tbase_292_i+$add_ptr6_sum_i_i)|0);
+ var $199=$head7_i_i;
+ HEAP32[(($199)>>2)]=40;
+ var $200=HEAP32[((24)>>2)];
+ HEAP32[((60)>>2)]=$200;
+ label=338;break;
+ case 211: 
+ var $sp_0105_i;
+ var $base184_i=(($sp_0105_i)|0);
+ var $201=HEAP32[(($base184_i)>>2)];
+ var $size185_i=(($sp_0105_i+4)|0);
+ var $202=HEAP32[(($size185_i)>>2)];
+ var $add_ptr186_i=(($201+$202)|0);
+ var $cmp187_i=($tbase_292_i|0)==($add_ptr186_i|0);
+ if($cmp187_i){label=213;break;}else{label=212;break;}
+ case 212: 
+ var $next_i=(($sp_0105_i+8)|0);
+ var $203=HEAP32[(($next_i)>>2)];
+ var $cmp183_i=($203|0)==0;
+ if($cmp183_i){label=218;break;}else{var $sp_0105_i=$203;label=211;break;}
+ case 213: 
+ var $sflags190_i=(($sp_0105_i+12)|0);
+ var $204=HEAP32[(($sflags190_i)>>2)];
+ var $and191_i=$204&8;
+ var $tobool192_i=($and191_i|0)==0;
+ if($tobool192_i){label=214;break;}else{label=218;break;}
+ case 214: 
+ var $205=$189;
+ var $cmp200_i=($205>>>0)>=($201>>>0);
+ var $cmp206_i=($205>>>0)<($tbase_292_i>>>0);
+ var $or_cond94_i=$cmp200_i&$cmp206_i;
+ if($or_cond94_i){label=215;break;}else{label=218;break;}
+ case 215: 
+ var $add209_i=((($202)+($tsize_291_i))|0);
+ HEAP32[(($size185_i)>>2)]=$add209_i;
+ var $206=HEAP32[((56)>>2)];
+ var $207=HEAP32[((44)>>2)];
+ var $add212_i=((($207)+($tsize_291_i))|0);
+ var $208=$206;
+ var $add_ptr_i23_i=(($206+8)|0);
+ var $209=$add_ptr_i23_i;
+ var $and_i24_i=$209&7;
+ var $cmp_i25_i=($and_i24_i|0)==0;
+ if($cmp_i25_i){var $cond_i28_i=0;label=217;break;}else{label=216;break;}
+ case 216: 
+ var $210=(((-$209))|0);
+ var $and3_i26_i=$210&7;
+ var $cond_i28_i=$and3_i26_i;label=217;break;
+ case 217: 
+ var $cond_i28_i;
+ var $add_ptr4_i29_i=(($208+$cond_i28_i)|0);
+ var $211=$add_ptr4_i29_i;
+ var $sub5_i30_i=((($add212_i)-($cond_i28_i))|0);
+ HEAP32[((56)>>2)]=$211;
+ HEAP32[((44)>>2)]=$sub5_i30_i;
+ var $or_i31_i=$sub5_i30_i|1;
+ var $add_ptr4_sum_i32_i=((($cond_i28_i)+(4))|0);
+ var $head_i33_i=(($208+$add_ptr4_sum_i32_i)|0);
+ var $212=$head_i33_i;
+ HEAP32[(($212)>>2)]=$or_i31_i;
+ var $add_ptr6_sum_i34_i=((($add212_i)+(4))|0);
+ var $head7_i35_i=(($208+$add_ptr6_sum_i34_i)|0);
+ var $213=$head7_i35_i;
+ HEAP32[(($213)>>2)]=40;
+ var $214=HEAP32[((24)>>2)];
+ HEAP32[((60)>>2)]=$214;
+ label=338;break;
+ case 218: 
+ var $215=HEAP32[((48)>>2)];
+ var $cmp215_i=($tbase_292_i>>>0)<($215>>>0);
+ if($cmp215_i){label=219;break;}else{label=220;break;}
+ case 219: 
+ HEAP32[((48)>>2)]=$tbase_292_i;
+ label=220;break;
+ case 220: 
+ var $add_ptr224_i=(($tbase_292_i+$tsize_291_i)|0);
+ var $sp_1101_i=480;label=221;break;
+ case 221: 
+ var $sp_1101_i;
+ var $base223_i=(($sp_1101_i)|0);
+ var $216=HEAP32[(($base223_i)>>2)];
+ var $cmp225_i=($216|0)==($add_ptr224_i|0);
+ if($cmp225_i){label=223;break;}else{label=222;break;}
+ case 222: 
+ var $next228_i=(($sp_1101_i+8)|0);
+ var $217=HEAP32[(($next228_i)>>2)];
+ var $cmp221_i=($217|0)==0;
+ if($cmp221_i){label=304;break;}else{var $sp_1101_i=$217;label=221;break;}
+ case 223: 
+ var $sflags232_i=(($sp_1101_i+12)|0);
+ var $218=HEAP32[(($sflags232_i)>>2)];
+ var $and233_i=$218&8;
+ var $tobool234_i=($and233_i|0)==0;
+ if($tobool234_i){label=224;break;}else{label=304;break;}
+ case 224: 
+ HEAP32[(($base223_i)>>2)]=$tbase_292_i;
+ var $size242_i=(($sp_1101_i+4)|0);
+ var $219=HEAP32[(($size242_i)>>2)];
+ var $add243_i=((($219)+($tsize_291_i))|0);
+ HEAP32[(($size242_i)>>2)]=$add243_i;
+ var $add_ptr_i38_i=(($tbase_292_i+8)|0);
+ var $220=$add_ptr_i38_i;
+ var $and_i39_i=$220&7;
+ var $cmp_i40_i=($and_i39_i|0)==0;
+ if($cmp_i40_i){var $cond_i43_i=0;label=226;break;}else{label=225;break;}
+ case 225: 
+ var $221=(((-$220))|0);
+ var $and3_i41_i=$221&7;
+ var $cond_i43_i=$and3_i41_i;label=226;break;
+ case 226: 
+ var $cond_i43_i;
+ var $add_ptr4_i44_i=(($tbase_292_i+$cond_i43_i)|0);
+ var $add_ptr224_sum_i=((($tsize_291_i)+(8))|0);
+ var $add_ptr5_i_i=(($tbase_292_i+$add_ptr224_sum_i)|0);
+ var $222=$add_ptr5_i_i;
+ var $and6_i45_i=$222&7;
+ var $cmp7_i_i=($and6_i45_i|0)==0;
+ if($cmp7_i_i){var $cond15_i_i=0;label=228;break;}else{label=227;break;}
+ case 227: 
+ var $223=(((-$222))|0);
+ var $and13_i_i=$223&7;
+ var $cond15_i_i=$and13_i_i;label=228;break;
+ case 228: 
+ var $cond15_i_i;
+ var $add_ptr224_sum122_i=((($cond15_i_i)+($tsize_291_i))|0);
+ var $add_ptr16_i_i=(($tbase_292_i+$add_ptr224_sum122_i)|0);
+ var $224=$add_ptr16_i_i;
+ var $sub_ptr_lhs_cast_i47_i=$add_ptr16_i_i;
+ var $sub_ptr_rhs_cast_i48_i=$add_ptr4_i44_i;
+ var $sub_ptr_sub_i49_i=((($sub_ptr_lhs_cast_i47_i)-($sub_ptr_rhs_cast_i48_i))|0);
+ var $add_ptr4_sum_i50_i=((($cond_i43_i)+($nb_0))|0);
+ var $add_ptr17_i_i=(($tbase_292_i+$add_ptr4_sum_i50_i)|0);
+ var $225=$add_ptr17_i_i;
+ var $sub18_i_i=((($sub_ptr_sub_i49_i)-($nb_0))|0);
+ var $or19_i_i=$nb_0|3;
+ var $add_ptr4_sum1_i_i=((($cond_i43_i)+(4))|0);
+ var $head_i51_i=(($tbase_292_i+$add_ptr4_sum1_i_i)|0);
+ var $226=$head_i51_i;
+ HEAP32[(($226)>>2)]=$or19_i_i;
+ var $227=HEAP32[((56)>>2)];
+ var $cmp20_i_i=($224|0)==($227|0);
+ if($cmp20_i_i){label=229;break;}else{label=230;break;}
+ case 229: 
+ var $228=HEAP32[((44)>>2)];
+ var $add_i_i=((($228)+($sub18_i_i))|0);
+ HEAP32[((44)>>2)]=$add_i_i;
+ HEAP32[((56)>>2)]=$225;
+ var $or22_i_i=$add_i_i|1;
+ var $add_ptr17_sum39_i_i=((($add_ptr4_sum_i50_i)+(4))|0);
+ var $head23_i_i=(($tbase_292_i+$add_ptr17_sum39_i_i)|0);
+ var $229=$head23_i_i;
+ HEAP32[(($229)>>2)]=$or22_i_i;
+ label=303;break;
+ case 230: 
+ var $230=HEAP32[((52)>>2)];
+ var $cmp24_i_i=($224|0)==($230|0);
+ if($cmp24_i_i){label=231;break;}else{label=232;break;}
+ case 231: 
+ var $231=HEAP32[((40)>>2)];
+ var $add26_i_i=((($231)+($sub18_i_i))|0);
+ HEAP32[((40)>>2)]=$add26_i_i;
+ HEAP32[((52)>>2)]=$225;
+ var $or28_i_i=$add26_i_i|1;
+ var $add_ptr17_sum37_i_i=((($add_ptr4_sum_i50_i)+(4))|0);
+ var $head29_i_i=(($tbase_292_i+$add_ptr17_sum37_i_i)|0);
+ var $232=$head29_i_i;
+ HEAP32[(($232)>>2)]=$or28_i_i;
+ var $add_ptr17_sum38_i_i=((($add26_i_i)+($add_ptr4_sum_i50_i))|0);
+ var $add_ptr30_i53_i=(($tbase_292_i+$add_ptr17_sum38_i_i)|0);
+ var $prev_foot_i54_i=$add_ptr30_i53_i;
+ HEAP32[(($prev_foot_i54_i)>>2)]=$add26_i_i;
+ label=303;break;
+ case 232: 
+ var $add_ptr16_sum_i_i=((($tsize_291_i)+(4))|0);
+ var $add_ptr224_sum123_i=((($add_ptr16_sum_i_i)+($cond15_i_i))|0);
+ var $head32_i_i=(($tbase_292_i+$add_ptr224_sum123_i)|0);
+ var $233=$head32_i_i;
+ var $234=HEAP32[(($233)>>2)];
+ var $and33_i_i=$234&3;
+ var $cmp34_i_i=($and33_i_i|0)==1;
+ if($cmp34_i_i){label=233;break;}else{var $oldfirst_0_i_i=$224;var $qsize_0_i_i=$sub18_i_i;label=280;break;}
+ case 233: 
+ var $and37_i_i=$234&-8;
+ var $shr_i55_i=$234>>>3;
+ var $cmp38_i_i=($234>>>0)<256;
+ if($cmp38_i_i){label=234;break;}else{label=246;break;}
+ case 234: 
+ var $add_ptr16_sum3233_i_i=$cond15_i_i|8;
+ var $add_ptr224_sum133_i=((($add_ptr16_sum3233_i_i)+($tsize_291_i))|0);
+ var $fd_i_i=(($tbase_292_i+$add_ptr224_sum133_i)|0);
+ var $235=$fd_i_i;
+ var $236=HEAP32[(($235)>>2)];
+ var $add_ptr16_sum34_i_i=((($tsize_291_i)+(12))|0);
+ var $add_ptr224_sum134_i=((($add_ptr16_sum34_i_i)+($cond15_i_i))|0);
+ var $bk_i56_i=(($tbase_292_i+$add_ptr224_sum134_i)|0);
+ var $237=$bk_i56_i;
+ var $238=HEAP32[(($237)>>2)];
+ var $shl_i57_i=$shr_i55_i<<1;
+ var $arrayidx_i58_i=((72+($shl_i57_i<<2))|0);
+ var $239=$arrayidx_i58_i;
+ var $cmp41_i_i=($236|0)==($239|0);
+ if($cmp41_i_i){label=237;break;}else{label=235;break;}
+ case 235: 
+ var $240=$236;
+ var $241=HEAP32[((48)>>2)];
+ var $cmp42_i_i=($240>>>0)<($241>>>0);
+ if($cmp42_i_i){label=245;break;}else{label=236;break;}
+ case 236: 
+ var $bk43_i_i=(($236+12)|0);
+ var $242=HEAP32[(($bk43_i_i)>>2)];
+ var $cmp44_i_i=($242|0)==($224|0);
+ if($cmp44_i_i){label=237;break;}else{label=245;break;}
+ case 237: 
+ var $cmp46_i60_i=($238|0)==($236|0);
+ if($cmp46_i60_i){label=238;break;}else{label=239;break;}
+ case 238: 
+ var $shl48_i_i=1<<$shr_i55_i;
+ var $neg_i_i=$shl48_i_i^-1;
+ var $243=HEAP32[((32)>>2)];
+ var $and49_i_i=$243&$neg_i_i;
+ HEAP32[((32)>>2)]=$and49_i_i;
+ label=279;break;
+ case 239: 
+ var $cmp54_i_i=($238|0)==($239|0);
+ if($cmp54_i_i){label=240;break;}else{label=241;break;}
+ case 240: 
+ var $fd68_pre_i_i=(($238+8)|0);
+ var $fd68_pre_phi_i_i=$fd68_pre_i_i;label=243;break;
+ case 241: 
+ var $244=$238;
+ var $245=HEAP32[((48)>>2)];
+ var $cmp57_i_i=($244>>>0)<($245>>>0);
+ if($cmp57_i_i){label=244;break;}else{label=242;break;}
+ case 242: 
+ var $fd59_i_i=(($238+8)|0);
+ var $246=HEAP32[(($fd59_i_i)>>2)];
+ var $cmp60_i_i=($246|0)==($224|0);
+ if($cmp60_i_i){var $fd68_pre_phi_i_i=$fd59_i_i;label=243;break;}else{label=244;break;}
+ case 243: 
+ var $fd68_pre_phi_i_i;
+ var $bk67_i_i=(($236+12)|0);
+ HEAP32[(($bk67_i_i)>>2)]=$238;
+ HEAP32[(($fd68_pre_phi_i_i)>>2)]=$236;
+ label=279;break;
+ case 244: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 245: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 246: 
+ var $247=$add_ptr16_i_i;
+ var $add_ptr16_sum23_i_i=$cond15_i_i|24;
+ var $add_ptr224_sum124_i=((($add_ptr16_sum23_i_i)+($tsize_291_i))|0);
+ var $parent_i62_i=(($tbase_292_i+$add_ptr224_sum124_i)|0);
+ var $248=$parent_i62_i;
+ var $249=HEAP32[(($248)>>2)];
+ var $add_ptr16_sum4_i_i=((($tsize_291_i)+(12))|0);
+ var $add_ptr224_sum125_i=((($add_ptr16_sum4_i_i)+($cond15_i_i))|0);
+ var $bk74_i_i=(($tbase_292_i+$add_ptr224_sum125_i)|0);
+ var $250=$bk74_i_i;
+ var $251=HEAP32[(($250)>>2)];
+ var $cmp75_i_i=($251|0)==($247|0);
+ if($cmp75_i_i){label=252;break;}else{label=247;break;}
+ case 247: 
+ var $add_ptr16_sum2930_i_i=$cond15_i_i|8;
+ var $add_ptr224_sum126_i=((($add_ptr16_sum2930_i_i)+($tsize_291_i))|0);
+ var $fd78_i_i=(($tbase_292_i+$add_ptr224_sum126_i)|0);
+ var $252=$fd78_i_i;
+ var $253=HEAP32[(($252)>>2)];
+ var $254=$253;
+ var $255=HEAP32[((48)>>2)];
+ var $cmp81_i_i=($254>>>0)<($255>>>0);
+ if($cmp81_i_i){label=251;break;}else{label=248;break;}
+ case 248: 
+ var $bk82_i_i=(($253+12)|0);
+ var $256=HEAP32[(($bk82_i_i)>>2)];
+ var $cmp83_i_i=($256|0)==($247|0);
+ if($cmp83_i_i){label=249;break;}else{label=251;break;}
+ case 249: 
+ var $fd85_i_i=(($251+8)|0);
+ var $257=HEAP32[(($fd85_i_i)>>2)];
+ var $cmp86_i_i=($257|0)==($247|0);
+ if($cmp86_i_i){label=250;break;}else{label=251;break;}
+ case 250: 
+ HEAP32[(($bk82_i_i)>>2)]=$251;
+ HEAP32[(($fd85_i_i)>>2)]=$253;
+ var $R_1_i_i=$251;label=259;break;
+ case 251: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 252: 
+ var $add_ptr16_sum56_i_i=$cond15_i_i|16;
+ var $add_ptr224_sum131_i=((($add_ptr16_sum_i_i)+($add_ptr16_sum56_i_i))|0);
+ var $arrayidx96_i_i=(($tbase_292_i+$add_ptr224_sum131_i)|0);
+ var $258=$arrayidx96_i_i;
+ var $259=HEAP32[(($258)>>2)];
+ var $cmp97_i_i=($259|0)==0;
+ if($cmp97_i_i){label=253;break;}else{var $R_0_i_i=$259;var $RP_0_i_i=$258;label=254;break;}
+ case 253: 
+ var $add_ptr224_sum132_i=((($add_ptr16_sum56_i_i)+($tsize_291_i))|0);
+ var $child_i_i=(($tbase_292_i+$add_ptr224_sum132_i)|0);
+ var $arrayidx99_i_i=$child_i_i;
+ var $260=HEAP32[(($arrayidx99_i_i)>>2)];
+ var $cmp100_i_i=($260|0)==0;
+ if($cmp100_i_i){var $R_1_i_i=0;label=259;break;}else{var $R_0_i_i=$260;var $RP_0_i_i=$arrayidx99_i_i;label=254;break;}
+ case 254: 
+ var $RP_0_i_i;
+ var $R_0_i_i;
+ var $arrayidx103_i_i=(($R_0_i_i+20)|0);
+ var $261=HEAP32[(($arrayidx103_i_i)>>2)];
+ var $cmp104_i_i=($261|0)==0;
+ if($cmp104_i_i){label=255;break;}else{var $R_0_i_i=$261;var $RP_0_i_i=$arrayidx103_i_i;label=254;break;}
+ case 255: 
+ var $arrayidx107_i_i=(($R_0_i_i+16)|0);
+ var $262=HEAP32[(($arrayidx107_i_i)>>2)];
+ var $cmp108_i_i=($262|0)==0;
+ if($cmp108_i_i){label=256;break;}else{var $R_0_i_i=$262;var $RP_0_i_i=$arrayidx107_i_i;label=254;break;}
+ case 256: 
+ var $263=$RP_0_i_i;
+ var $264=HEAP32[((48)>>2)];
+ var $cmp112_i_i=($263>>>0)<($264>>>0);
+ if($cmp112_i_i){label=258;break;}else{label=257;break;}
+ case 257: 
+ HEAP32[(($RP_0_i_i)>>2)]=0;
+ var $R_1_i_i=$R_0_i_i;label=259;break;
+ case 258: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 259: 
+ var $R_1_i_i;
+ var $cmp120_i64_i=($249|0)==0;
+ if($cmp120_i64_i){label=279;break;}else{label=260;break;}
+ case 260: 
+ var $add_ptr16_sum26_i_i=((($tsize_291_i)+(28))|0);
+ var $add_ptr224_sum127_i=((($add_ptr16_sum26_i_i)+($cond15_i_i))|0);
+ var $index_i65_i=(($tbase_292_i+$add_ptr224_sum127_i)|0);
+ var $265=$index_i65_i;
+ var $266=HEAP32[(($265)>>2)];
+ var $arrayidx123_i_i=((336+($266<<2))|0);
+ var $267=HEAP32[(($arrayidx123_i_i)>>2)];
+ var $cmp124_i_i=($247|0)==($267|0);
+ if($cmp124_i_i){label=261;break;}else{label=263;break;}
+ case 261: 
+ HEAP32[(($arrayidx123_i_i)>>2)]=$R_1_i_i;
+ var $cond41_i_i=($R_1_i_i|0)==0;
+ if($cond41_i_i){label=262;break;}else{label=269;break;}
+ case 262: 
+ var $268=HEAP32[(($265)>>2)];
+ var $shl131_i_i=1<<$268;
+ var $neg132_i_i=$shl131_i_i^-1;
+ var $269=HEAP32[((36)>>2)];
+ var $and133_i_i=$269&$neg132_i_i;
+ HEAP32[((36)>>2)]=$and133_i_i;
+ label=279;break;
+ case 263: 
+ var $270=$249;
+ var $271=HEAP32[((48)>>2)];
+ var $cmp137_i_i=($270>>>0)<($271>>>0);
+ if($cmp137_i_i){label=267;break;}else{label=264;break;}
+ case 264: 
+ var $arrayidx143_i_i=(($249+16)|0);
+ var $272=HEAP32[(($arrayidx143_i_i)>>2)];
+ var $cmp144_i_i=($272|0)==($247|0);
+ if($cmp144_i_i){label=265;break;}else{label=266;break;}
+ case 265: 
+ HEAP32[(($arrayidx143_i_i)>>2)]=$R_1_i_i;
+ label=268;break;
+ case 266: 
+ var $arrayidx151_i_i=(($249+20)|0);
+ HEAP32[(($arrayidx151_i_i)>>2)]=$R_1_i_i;
+ label=268;break;
+ case 267: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 268: 
+ var $cmp156_i_i=($R_1_i_i|0)==0;
+ if($cmp156_i_i){label=279;break;}else{label=269;break;}
+ case 269: 
+ var $273=$R_1_i_i;
+ var $274=HEAP32[((48)>>2)];
+ var $cmp160_i_i=($273>>>0)<($274>>>0);
+ if($cmp160_i_i){label=278;break;}else{label=270;break;}
+ case 270: 
+ var $parent165_i_i=(($R_1_i_i+24)|0);
+ HEAP32[(($parent165_i_i)>>2)]=$249;
+ var $add_ptr16_sum2728_i_i=$cond15_i_i|16;
+ var $add_ptr224_sum128_i=((($add_ptr16_sum2728_i_i)+($tsize_291_i))|0);
+ var $child166_i_i=(($tbase_292_i+$add_ptr224_sum128_i)|0);
+ var $arrayidx167_i_i=$child166_i_i;
+ var $275=HEAP32[(($arrayidx167_i_i)>>2)];
+ var $cmp168_i_i=($275|0)==0;
+ if($cmp168_i_i){label=274;break;}else{label=271;break;}
+ case 271: 
+ var $276=$275;
+ var $277=HEAP32[((48)>>2)];
+ var $cmp172_i_i=($276>>>0)<($277>>>0);
+ if($cmp172_i_i){label=273;break;}else{label=272;break;}
+ case 272: 
+ var $arrayidx178_i_i=(($R_1_i_i+16)|0);
+ HEAP32[(($arrayidx178_i_i)>>2)]=$275;
+ var $parent179_i_i=(($275+24)|0);
+ HEAP32[(($parent179_i_i)>>2)]=$R_1_i_i;
+ label=274;break;
+ case 273: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 274: 
+ var $add_ptr224_sum129_i=((($add_ptr16_sum_i_i)+($add_ptr16_sum2728_i_i))|0);
+ var $arrayidx184_i_i=(($tbase_292_i+$add_ptr224_sum129_i)|0);
+ var $278=$arrayidx184_i_i;
+ var $279=HEAP32[(($278)>>2)];
+ var $cmp185_i_i=($279|0)==0;
+ if($cmp185_i_i){label=279;break;}else{label=275;break;}
+ case 275: 
+ var $280=$279;
+ var $281=HEAP32[((48)>>2)];
+ var $cmp189_i_i=($280>>>0)<($281>>>0);
+ if($cmp189_i_i){label=277;break;}else{label=276;break;}
+ case 276: 
+ var $arrayidx195_i_i=(($R_1_i_i+20)|0);
+ HEAP32[(($arrayidx195_i_i)>>2)]=$279;
+ var $parent196_i_i=(($279+24)|0);
+ HEAP32[(($parent196_i_i)>>2)]=$R_1_i_i;
+ label=279;break;
+ case 277: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 278: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 279: 
+ var $add_ptr16_sum7_i_i=$and37_i_i|$cond15_i_i;
+ var $add_ptr224_sum130_i=((($add_ptr16_sum7_i_i)+($tsize_291_i))|0);
+ var $add_ptr205_i_i=(($tbase_292_i+$add_ptr224_sum130_i)|0);
+ var $282=$add_ptr205_i_i;
+ var $add206_i_i=((($and37_i_i)+($sub18_i_i))|0);
+ var $oldfirst_0_i_i=$282;var $qsize_0_i_i=$add206_i_i;label=280;break;
+ case 280: 
+ var $qsize_0_i_i;
+ var $oldfirst_0_i_i;
+ var $head208_i_i=(($oldfirst_0_i_i+4)|0);
+ var $283=HEAP32[(($head208_i_i)>>2)];
+ var $and209_i_i=$283&-2;
+ HEAP32[(($head208_i_i)>>2)]=$and209_i_i;
+ var $or210_i_i=$qsize_0_i_i|1;
+ var $add_ptr17_sum_i_i=((($add_ptr4_sum_i50_i)+(4))|0);
+ var $head211_i_i=(($tbase_292_i+$add_ptr17_sum_i_i)|0);
+ var $284=$head211_i_i;
+ HEAP32[(($284)>>2)]=$or210_i_i;
+ var $add_ptr17_sum8_i_i=((($qsize_0_i_i)+($add_ptr4_sum_i50_i))|0);
+ var $add_ptr212_i_i=(($tbase_292_i+$add_ptr17_sum8_i_i)|0);
+ var $prev_foot213_i_i=$add_ptr212_i_i;
+ HEAP32[(($prev_foot213_i_i)>>2)]=$qsize_0_i_i;
+ var $shr214_i_i=$qsize_0_i_i>>>3;
+ var $cmp215_i_i=($qsize_0_i_i>>>0)<256;
+ if($cmp215_i_i){label=281;break;}else{label=286;break;}
+ case 281: 
+ var $shl221_i_i=$shr214_i_i<<1;
+ var $arrayidx223_i_i=((72+($shl221_i_i<<2))|0);
+ var $285=$arrayidx223_i_i;
+ var $286=HEAP32[((32)>>2)];
+ var $shl226_i_i=1<<$shr214_i_i;
+ var $and227_i_i=$286&$shl226_i_i;
+ var $tobool228_i_i=($and227_i_i|0)==0;
+ if($tobool228_i_i){label=282;break;}else{label=283;break;}
+ case 282: 
+ var $or232_i_i=$286|$shl226_i_i;
+ HEAP32[((32)>>2)]=$or232_i_i;
+ var $arrayidx223_sum_pre_i_i=((($shl221_i_i)+(2))|0);
+ var $_pre_i67_i=((72+($arrayidx223_sum_pre_i_i<<2))|0);
+ var $F224_0_i_i=$285;var $_pre_phi_i68_i=$_pre_i67_i;label=285;break;
+ case 283: 
+ var $arrayidx223_sum25_i_i=((($shl221_i_i)+(2))|0);
+ var $287=((72+($arrayidx223_sum25_i_i<<2))|0);
+ var $288=HEAP32[(($287)>>2)];
+ var $289=$288;
+ var $290=HEAP32[((48)>>2)];
+ var $cmp236_i_i=($289>>>0)<($290>>>0);
+ if($cmp236_i_i){label=284;break;}else{var $F224_0_i_i=$288;var $_pre_phi_i68_i=$287;label=285;break;}
+ case 284: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 285: 
+ var $_pre_phi_i68_i;
+ var $F224_0_i_i;
+ HEAP32[(($_pre_phi_i68_i)>>2)]=$225;
+ var $bk246_i_i=(($F224_0_i_i+12)|0);
+ HEAP32[(($bk246_i_i)>>2)]=$225;
+ var $add_ptr17_sum23_i_i=((($add_ptr4_sum_i50_i)+(8))|0);
+ var $fd247_i_i=(($tbase_292_i+$add_ptr17_sum23_i_i)|0);
+ var $291=$fd247_i_i;
+ HEAP32[(($291)>>2)]=$F224_0_i_i;
+ var $add_ptr17_sum24_i_i=((($add_ptr4_sum_i50_i)+(12))|0);
+ var $bk248_i_i=(($tbase_292_i+$add_ptr17_sum24_i_i)|0);
+ var $292=$bk248_i_i;
+ HEAP32[(($292)>>2)]=$285;
+ label=303;break;
+ case 286: 
+ var $293=$add_ptr17_i_i;
+ var $shr253_i_i=$qsize_0_i_i>>>8;
+ var $cmp254_i_i=($shr253_i_i|0)==0;
+ if($cmp254_i_i){var $I252_0_i_i=0;label=289;break;}else{label=287;break;}
+ case 287: 
+ var $cmp258_i_i=($qsize_0_i_i>>>0)>16777215;
+ if($cmp258_i_i){var $I252_0_i_i=31;label=289;break;}else{label=288;break;}
+ case 288: 
+ var $sub262_i_i=((($shr253_i_i)+(1048320))|0);
+ var $shr263_i_i=$sub262_i_i>>>16;
+ var $and264_i_i=$shr263_i_i&8;
+ var $shl265_i_i=$shr253_i_i<<$and264_i_i;
+ var $sub266_i_i=((($shl265_i_i)+(520192))|0);
+ var $shr267_i_i=$sub266_i_i>>>16;
+ var $and268_i_i=$shr267_i_i&4;
+ var $add269_i_i=$and268_i_i|$and264_i_i;
+ var $shl270_i_i=$shl265_i_i<<$and268_i_i;
+ var $sub271_i_i=((($shl270_i_i)+(245760))|0);
+ var $shr272_i_i=$sub271_i_i>>>16;
+ var $and273_i_i=$shr272_i_i&2;
+ var $add274_i_i=$add269_i_i|$and273_i_i;
+ var $sub275_i_i=(((14)-($add274_i_i))|0);
+ var $shl276_i_i=$shl270_i_i<<$and273_i_i;
+ var $shr277_i_i=$shl276_i_i>>>15;
+ var $add278_i_i=((($sub275_i_i)+($shr277_i_i))|0);
+ var $shl279_i_i=$add278_i_i<<1;
+ var $add280_i_i=((($add278_i_i)+(7))|0);
+ var $shr281_i_i=$qsize_0_i_i>>>($add280_i_i>>>0);
+ var $and282_i_i=$shr281_i_i&1;
+ var $add283_i_i=$and282_i_i|$shl279_i_i;
+ var $I252_0_i_i=$add283_i_i;label=289;break;
+ case 289: 
+ var $I252_0_i_i;
+ var $arrayidx287_i_i=((336+($I252_0_i_i<<2))|0);
+ var $add_ptr17_sum9_i_i=((($add_ptr4_sum_i50_i)+(28))|0);
+ var $index288_i_i=(($tbase_292_i+$add_ptr17_sum9_i_i)|0);
+ var $294=$index288_i_i;
+ HEAP32[(($294)>>2)]=$I252_0_i_i;
+ var $add_ptr17_sum10_i_i=((($add_ptr4_sum_i50_i)+(16))|0);
+ var $child289_i_i=(($tbase_292_i+$add_ptr17_sum10_i_i)|0);
+ var $child289_sum_i_i=((($add_ptr4_sum_i50_i)+(20))|0);
+ var $arrayidx290_i_i=(($tbase_292_i+$child289_sum_i_i)|0);
+ var $295=$arrayidx290_i_i;
+ HEAP32[(($295)>>2)]=0;
+ var $arrayidx292_i_i=$child289_i_i;
+ HEAP32[(($arrayidx292_i_i)>>2)]=0;
+ var $296=HEAP32[((36)>>2)];
+ var $shl294_i_i=1<<$I252_0_i_i;
+ var $and295_i_i=$296&$shl294_i_i;
+ var $tobool296_i_i=($and295_i_i|0)==0;
+ if($tobool296_i_i){label=290;break;}else{label=291;break;}
+ case 290: 
+ var $or300_i_i=$296|$shl294_i_i;
+ HEAP32[((36)>>2)]=$or300_i_i;
+ HEAP32[(($arrayidx287_i_i)>>2)]=$293;
+ var $297=$arrayidx287_i_i;
+ var $add_ptr17_sum11_i_i=((($add_ptr4_sum_i50_i)+(24))|0);
+ var $parent301_i_i=(($tbase_292_i+$add_ptr17_sum11_i_i)|0);
+ var $298=$parent301_i_i;
+ HEAP32[(($298)>>2)]=$297;
+ var $add_ptr17_sum12_i_i=((($add_ptr4_sum_i50_i)+(12))|0);
+ var $bk302_i_i=(($tbase_292_i+$add_ptr17_sum12_i_i)|0);
+ var $299=$bk302_i_i;
+ HEAP32[(($299)>>2)]=$293;
+ var $add_ptr17_sum13_i_i=((($add_ptr4_sum_i50_i)+(8))|0);
+ var $fd303_i_i=(($tbase_292_i+$add_ptr17_sum13_i_i)|0);
+ var $300=$fd303_i_i;
+ HEAP32[(($300)>>2)]=$293;
+ label=303;break;
+ case 291: 
+ var $301=HEAP32[(($arrayidx287_i_i)>>2)];
+ var $cmp306_i_i=($I252_0_i_i|0)==31;
+ if($cmp306_i_i){var $cond315_i_i=0;label=293;break;}else{label=292;break;}
+ case 292: 
+ var $shr310_i_i=$I252_0_i_i>>>1;
+ var $sub313_i_i=(((25)-($shr310_i_i))|0);
+ var $cond315_i_i=$sub313_i_i;label=293;break;
+ case 293: 
+ var $cond315_i_i;
+ var $shl316_i_i=$qsize_0_i_i<<$cond315_i_i;
+ var $K305_0_i_i=$shl316_i_i;var $T_0_i69_i=$301;label=294;break;
+ case 294: 
+ var $T_0_i69_i;
+ var $K305_0_i_i;
+ var $head317_i_i=(($T_0_i69_i+4)|0);
+ var $302=HEAP32[(($head317_i_i)>>2)];
+ var $and318_i_i=$302&-8;
+ var $cmp319_i_i=($and318_i_i|0)==($qsize_0_i_i|0);
+ if($cmp319_i_i){label=299;break;}else{label=295;break;}
+ case 295: 
+ var $shr322_i_i=$K305_0_i_i>>>31;
+ var $arrayidx325_i_i=(($T_0_i69_i+16+($shr322_i_i<<2))|0);
+ var $303=HEAP32[(($arrayidx325_i_i)>>2)];
+ var $cmp327_i_i=($303|0)==0;
+ var $shl326_i_i=$K305_0_i_i<<1;
+ if($cmp327_i_i){label=296;break;}else{var $K305_0_i_i=$shl326_i_i;var $T_0_i69_i=$303;label=294;break;}
+ case 296: 
+ var $304=$arrayidx325_i_i;
+ var $305=HEAP32[((48)>>2)];
+ var $cmp332_i_i=($304>>>0)<($305>>>0);
+ if($cmp332_i_i){label=298;break;}else{label=297;break;}
+ case 297: 
+ HEAP32[(($arrayidx325_i_i)>>2)]=$293;
+ var $add_ptr17_sum20_i_i=((($add_ptr4_sum_i50_i)+(24))|0);
+ var $parent337_i_i=(($tbase_292_i+$add_ptr17_sum20_i_i)|0);
+ var $306=$parent337_i_i;
+ HEAP32[(($306)>>2)]=$T_0_i69_i;
+ var $add_ptr17_sum21_i_i=((($add_ptr4_sum_i50_i)+(12))|0);
+ var $bk338_i_i=(($tbase_292_i+$add_ptr17_sum21_i_i)|0);
+ var $307=$bk338_i_i;
+ HEAP32[(($307)>>2)]=$293;
+ var $add_ptr17_sum22_i_i=((($add_ptr4_sum_i50_i)+(8))|0);
+ var $fd339_i_i=(($tbase_292_i+$add_ptr17_sum22_i_i)|0);
+ var $308=$fd339_i_i;
+ HEAP32[(($308)>>2)]=$293;
+ label=303;break;
+ case 298: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 299: 
+ var $fd344_i_i=(($T_0_i69_i+8)|0);
+ var $309=HEAP32[(($fd344_i_i)>>2)];
+ var $310=$T_0_i69_i;
+ var $311=HEAP32[((48)>>2)];
+ var $cmp346_i_i=($310>>>0)<($311>>>0);
+ if($cmp346_i_i){label=302;break;}else{label=300;break;}
+ case 300: 
+ var $312=$309;
+ var $cmp350_i_i=($312>>>0)<($311>>>0);
+ if($cmp350_i_i){label=302;break;}else{label=301;break;}
+ case 301: 
+ var $bk357_i_i=(($309+12)|0);
+ HEAP32[(($bk357_i_i)>>2)]=$293;
+ HEAP32[(($fd344_i_i)>>2)]=$293;
+ var $add_ptr17_sum17_i_i=((($add_ptr4_sum_i50_i)+(8))|0);
+ var $fd359_i_i=(($tbase_292_i+$add_ptr17_sum17_i_i)|0);
+ var $313=$fd359_i_i;
+ HEAP32[(($313)>>2)]=$309;
+ var $add_ptr17_sum18_i_i=((($add_ptr4_sum_i50_i)+(12))|0);
+ var $bk360_i_i=(($tbase_292_i+$add_ptr17_sum18_i_i)|0);
+ var $314=$bk360_i_i;
+ HEAP32[(($314)>>2)]=$T_0_i69_i;
+ var $add_ptr17_sum19_i_i=((($add_ptr4_sum_i50_i)+(24))|0);
+ var $parent361_i_i=(($tbase_292_i+$add_ptr17_sum19_i_i)|0);
+ var $315=$parent361_i_i;
+ HEAP32[(($315)>>2)]=0;
+ label=303;break;
+ case 302: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 303: 
+ var $add_ptr4_sum1415_i_i=$cond_i43_i|8;
+ var $add_ptr368_i_i=(($tbase_292_i+$add_ptr4_sum1415_i_i)|0);
+ var $mem_0=$add_ptr368_i_i;label=341;break;
+ case 304: 
+ var $316=$189;
+ var $sp_0_i_i_i=480;label=305;break;
+ case 305: 
+ var $sp_0_i_i_i;
+ var $base_i_i_i=(($sp_0_i_i_i)|0);
+ var $317=HEAP32[(($base_i_i_i)>>2)];
+ var $cmp_i_i_i=($317>>>0)>($316>>>0);
+ if($cmp_i_i_i){label=307;break;}else{label=306;break;}
+ case 306: 
+ var $size_i_i_i=(($sp_0_i_i_i+4)|0);
+ var $318=HEAP32[(($size_i_i_i)>>2)];
+ var $add_ptr_i_i_i=(($317+$318)|0);
+ var $cmp2_i_i_i=($add_ptr_i_i_i>>>0)>($316>>>0);
+ if($cmp2_i_i_i){label=308;break;}else{label=307;break;}
+ case 307: 
+ var $next_i_i_i=(($sp_0_i_i_i+8)|0);
+ var $319=HEAP32[(($next_i_i_i)>>2)];
+ var $sp_0_i_i_i=$319;label=305;break;
+ case 308: 
+ var $add_ptr_sum_i_i=((($318)-(47))|0);
+ var $add_ptr2_sum_i_i=((($318)-(39))|0);
+ var $add_ptr3_i_i=(($317+$add_ptr2_sum_i_i)|0);
+ var $320=$add_ptr3_i_i;
+ var $and_i15_i=$320&7;
+ var $cmp_i16_i=($and_i15_i|0)==0;
+ if($cmp_i16_i){var $cond_i18_i=0;label=310;break;}else{label=309;break;}
+ case 309: 
+ var $321=(((-$320))|0);
+ var $and6_i_i=$321&7;
+ var $cond_i18_i=$and6_i_i;label=310;break;
+ case 310: 
+ var $cond_i18_i;
+ var $add_ptr2_sum1_i_i=((($add_ptr_sum_i_i)+($cond_i18_i))|0);
+ var $add_ptr7_i_i=(($317+$add_ptr2_sum1_i_i)|0);
+ var $add_ptr82_i_i=(($189+16)|0);
+ var $add_ptr8_i_i=$add_ptr82_i_i;
+ var $cmp9_i_i=($add_ptr7_i_i>>>0)<($add_ptr8_i_i>>>0);
+ var $cond13_i_i=$cmp9_i_i?$316:$add_ptr7_i_i;
+ var $add_ptr14_i_i=(($cond13_i_i+8)|0);
+ var $322=$add_ptr14_i_i;
+ var $sub16_i_i=((($tsize_291_i)-(40))|0);
+ var $add_ptr_i11_i_i=(($tbase_292_i+8)|0);
+ var $323=$add_ptr_i11_i_i;
+ var $and_i_i_i=$323&7;
+ var $cmp_i12_i_i=($and_i_i_i|0)==0;
+ if($cmp_i12_i_i){var $cond_i_i_i=0;label=312;break;}else{label=311;break;}
+ case 311: 
+ var $324=(((-$323))|0);
+ var $and3_i_i_i=$324&7;
+ var $cond_i_i_i=$and3_i_i_i;label=312;break;
+ case 312: 
+ var $cond_i_i_i;
+ var $add_ptr4_i_i_i=(($tbase_292_i+$cond_i_i_i)|0);
+ var $325=$add_ptr4_i_i_i;
+ var $sub5_i_i_i=((($sub16_i_i)-($cond_i_i_i))|0);
+ HEAP32[((56)>>2)]=$325;
+ HEAP32[((44)>>2)]=$sub5_i_i_i;
+ var $or_i_i_i=$sub5_i_i_i|1;
+ var $add_ptr4_sum_i_i_i=((($cond_i_i_i)+(4))|0);
+ var $head_i_i_i=(($tbase_292_i+$add_ptr4_sum_i_i_i)|0);
+ var $326=$head_i_i_i;
+ HEAP32[(($326)>>2)]=$or_i_i_i;
+ var $add_ptr6_sum_i_i_i=((($tsize_291_i)-(36))|0);
+ var $head7_i_i_i=(($tbase_292_i+$add_ptr6_sum_i_i_i)|0);
+ var $327=$head7_i_i_i;
+ HEAP32[(($327)>>2)]=40;
+ var $328=HEAP32[((24)>>2)];
+ HEAP32[((60)>>2)]=$328;
+ var $head_i19_i=(($cond13_i_i+4)|0);
+ var $329=$head_i19_i;
+ HEAP32[(($329)>>2)]=27;
+ assert(16 % 1 === 0);HEAP32[(($add_ptr14_i_i)>>2)]=HEAP32[((480)>>2)];HEAP32[((($add_ptr14_i_i)+(4))>>2)]=HEAP32[((484)>>2)];HEAP32[((($add_ptr14_i_i)+(8))>>2)]=HEAP32[((488)>>2)];HEAP32[((($add_ptr14_i_i)+(12))>>2)]=HEAP32[((492)>>2)];
+ HEAP32[((480)>>2)]=$tbase_292_i;
+ HEAP32[((484)>>2)]=$tsize_291_i;
+ HEAP32[((492)>>2)]=0;
+ HEAP32[((488)>>2)]=$322;
+ var $add_ptr2414_i_i=(($cond13_i_i+28)|0);
+ var $330=$add_ptr2414_i_i;
+ HEAP32[(($330)>>2)]=7;
+ var $331=(($cond13_i_i+32)|0);
+ var $cmp2715_i_i=($331>>>0)<($add_ptr_i_i_i>>>0);
+ if($cmp2715_i_i){var $add_ptr2416_i_i=$330;label=313;break;}else{label=314;break;}
+ case 313: 
+ var $add_ptr2416_i_i;
+ var $332=(($add_ptr2416_i_i+4)|0);
+ HEAP32[(($332)>>2)]=7;
+ var $333=(($add_ptr2416_i_i+8)|0);
+ var $334=$333;
+ var $cmp27_i_i=($334>>>0)<($add_ptr_i_i_i>>>0);
+ if($cmp27_i_i){var $add_ptr2416_i_i=$332;label=313;break;}else{label=314;break;}
+ case 314: 
+ var $cmp28_i_i=($cond13_i_i|0)==($316|0);
+ if($cmp28_i_i){label=338;break;}else{label=315;break;}
+ case 315: 
+ var $sub_ptr_lhs_cast_i_i=$cond13_i_i;
+ var $sub_ptr_rhs_cast_i_i=$189;
+ var $sub_ptr_sub_i_i=((($sub_ptr_lhs_cast_i_i)-($sub_ptr_rhs_cast_i_i))|0);
+ var $add_ptr30_i_i=(($316+$sub_ptr_sub_i_i)|0);
+ var $add_ptr30_sum_i_i=((($sub_ptr_sub_i_i)+(4))|0);
+ var $head31_i_i=(($316+$add_ptr30_sum_i_i)|0);
+ var $335=$head31_i_i;
+ var $336=HEAP32[(($335)>>2)];
+ var $and32_i_i=$336&-2;
+ HEAP32[(($335)>>2)]=$and32_i_i;
+ var $or33_i_i=$sub_ptr_sub_i_i|1;
+ var $head34_i_i=(($189+4)|0);
+ HEAP32[(($head34_i_i)>>2)]=$or33_i_i;
+ var $prev_foot_i_i=$add_ptr30_i_i;
+ HEAP32[(($prev_foot_i_i)>>2)]=$sub_ptr_sub_i_i;
+ var $shr_i_i=$sub_ptr_sub_i_i>>>3;
+ var $cmp36_i_i=($sub_ptr_sub_i_i>>>0)<256;
+ if($cmp36_i_i){label=316;break;}else{label=321;break;}
+ case 316: 
+ var $shl_i21_i=$shr_i_i<<1;
+ var $arrayidx_i22_i=((72+($shl_i21_i<<2))|0);
+ var $337=$arrayidx_i22_i;
+ var $338=HEAP32[((32)>>2)];
+ var $shl39_i_i=1<<$shr_i_i;
+ var $and40_i_i=$338&$shl39_i_i;
+ var $tobool_i_i=($and40_i_i|0)==0;
+ if($tobool_i_i){label=317;break;}else{label=318;break;}
+ case 317: 
+ var $or44_i_i=$338|$shl39_i_i;
+ HEAP32[((32)>>2)]=$or44_i_i;
+ var $arrayidx_sum_pre_i_i=((($shl_i21_i)+(2))|0);
+ var $_pre_i_i=((72+($arrayidx_sum_pre_i_i<<2))|0);
+ var $F_0_i_i=$337;var $_pre_phi_i_i=$_pre_i_i;label=320;break;
+ case 318: 
+ var $arrayidx_sum10_i_i=((($shl_i21_i)+(2))|0);
+ var $339=((72+($arrayidx_sum10_i_i<<2))|0);
+ var $340=HEAP32[(($339)>>2)];
+ var $341=$340;
+ var $342=HEAP32[((48)>>2)];
+ var $cmp46_i_i=($341>>>0)<($342>>>0);
+ if($cmp46_i_i){label=319;break;}else{var $F_0_i_i=$340;var $_pre_phi_i_i=$339;label=320;break;}
+ case 319: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 320: 
+ var $_pre_phi_i_i;
+ var $F_0_i_i;
+ HEAP32[(($_pre_phi_i_i)>>2)]=$189;
+ var $bk_i_i=(($F_0_i_i+12)|0);
+ HEAP32[(($bk_i_i)>>2)]=$189;
+ var $fd54_i_i=(($189+8)|0);
+ HEAP32[(($fd54_i_i)>>2)]=$F_0_i_i;
+ var $bk55_i_i=(($189+12)|0);
+ HEAP32[(($bk55_i_i)>>2)]=$337;
+ label=338;break;
+ case 321: 
+ var $343=$189;
+ var $shr58_i_i=$sub_ptr_sub_i_i>>>8;
+ var $cmp59_i_i=($shr58_i_i|0)==0;
+ if($cmp59_i_i){var $I57_0_i_i=0;label=324;break;}else{label=322;break;}
+ case 322: 
+ var $cmp63_i_i=($sub_ptr_sub_i_i>>>0)>16777215;
+ if($cmp63_i_i){var $I57_0_i_i=31;label=324;break;}else{label=323;break;}
+ case 323: 
+ var $sub67_i_i=((($shr58_i_i)+(1048320))|0);
+ var $shr68_i_i=$sub67_i_i>>>16;
+ var $and69_i_i=$shr68_i_i&8;
+ var $shl70_i_i=$shr58_i_i<<$and69_i_i;
+ var $sub71_i_i=((($shl70_i_i)+(520192))|0);
+ var $shr72_i_i=$sub71_i_i>>>16;
+ var $and73_i_i=$shr72_i_i&4;
+ var $add74_i_i=$and73_i_i|$and69_i_i;
+ var $shl75_i_i=$shl70_i_i<<$and73_i_i;
+ var $sub76_i_i=((($shl75_i_i)+(245760))|0);
+ var $shr77_i_i=$sub76_i_i>>>16;
+ var $and78_i_i=$shr77_i_i&2;
+ var $add79_i_i=$add74_i_i|$and78_i_i;
+ var $sub80_i_i=(((14)-($add79_i_i))|0);
+ var $shl81_i_i=$shl75_i_i<<$and78_i_i;
+ var $shr82_i_i=$shl81_i_i>>>15;
+ var $add83_i_i=((($sub80_i_i)+($shr82_i_i))|0);
+ var $shl84_i_i=$add83_i_i<<1;
+ var $add85_i_i=((($add83_i_i)+(7))|0);
+ var $shr86_i_i=$sub_ptr_sub_i_i>>>($add85_i_i>>>0);
+ var $and87_i_i=$shr86_i_i&1;
+ var $add88_i_i=$and87_i_i|$shl84_i_i;
+ var $I57_0_i_i=$add88_i_i;label=324;break;
+ case 324: 
+ var $I57_0_i_i;
+ var $arrayidx91_i_i=((336+($I57_0_i_i<<2))|0);
+ var $index_i_i=(($189+28)|0);
+ var $I57_0_c_i_i=$I57_0_i_i;
+ HEAP32[(($index_i_i)>>2)]=$I57_0_c_i_i;
+ var $arrayidx92_i_i=(($189+20)|0);
+ HEAP32[(($arrayidx92_i_i)>>2)]=0;
+ var $344=(($189+16)|0);
+ HEAP32[(($344)>>2)]=0;
+ var $345=HEAP32[((36)>>2)];
+ var $shl95_i_i=1<<$I57_0_i_i;
+ var $and96_i_i=$345&$shl95_i_i;
+ var $tobool97_i_i=($and96_i_i|0)==0;
+ if($tobool97_i_i){label=325;break;}else{label=326;break;}
+ case 325: 
+ var $or101_i_i=$345|$shl95_i_i;
+ HEAP32[((36)>>2)]=$or101_i_i;
+ HEAP32[(($arrayidx91_i_i)>>2)]=$343;
+ var $parent_i_i=(($189+24)|0);
+ var $_c_i_i=$arrayidx91_i_i;
+ HEAP32[(($parent_i_i)>>2)]=$_c_i_i;
+ var $bk102_i_i=(($189+12)|0);
+ HEAP32[(($bk102_i_i)>>2)]=$189;
+ var $fd103_i_i=(($189+8)|0);
+ HEAP32[(($fd103_i_i)>>2)]=$189;
+ label=338;break;
+ case 326: 
+ var $346=HEAP32[(($arrayidx91_i_i)>>2)];
+ var $cmp106_i_i=($I57_0_i_i|0)==31;
+ if($cmp106_i_i){var $cond115_i_i=0;label=328;break;}else{label=327;break;}
+ case 327: 
+ var $shr110_i_i=$I57_0_i_i>>>1;
+ var $sub113_i_i=(((25)-($shr110_i_i))|0);
+ var $cond115_i_i=$sub113_i_i;label=328;break;
+ case 328: 
+ var $cond115_i_i;
+ var $shl116_i_i=$sub_ptr_sub_i_i<<$cond115_i_i;
+ var $K105_0_i_i=$shl116_i_i;var $T_0_i_i=$346;label=329;break;
+ case 329: 
+ var $T_0_i_i;
+ var $K105_0_i_i;
+ var $head118_i_i=(($T_0_i_i+4)|0);
+ var $347=HEAP32[(($head118_i_i)>>2)];
+ var $and119_i_i=$347&-8;
+ var $cmp120_i_i=($and119_i_i|0)==($sub_ptr_sub_i_i|0);
+ if($cmp120_i_i){label=334;break;}else{label=330;break;}
+ case 330: 
+ var $shr123_i_i=$K105_0_i_i>>>31;
+ var $arrayidx126_i_i=(($T_0_i_i+16+($shr123_i_i<<2))|0);
+ var $348=HEAP32[(($arrayidx126_i_i)>>2)];
+ var $cmp128_i_i=($348|0)==0;
+ var $shl127_i_i=$K105_0_i_i<<1;
+ if($cmp128_i_i){label=331;break;}else{var $K105_0_i_i=$shl127_i_i;var $T_0_i_i=$348;label=329;break;}
+ case 331: 
+ var $349=$arrayidx126_i_i;
+ var $350=HEAP32[((48)>>2)];
+ var $cmp133_i_i=($349>>>0)<($350>>>0);
+ if($cmp133_i_i){label=333;break;}else{label=332;break;}
+ case 332: 
+ HEAP32[(($arrayidx126_i_i)>>2)]=$343;
+ var $parent138_i_i=(($189+24)|0);
+ var $T_0_c7_i_i=$T_0_i_i;
+ HEAP32[(($parent138_i_i)>>2)]=$T_0_c7_i_i;
+ var $bk139_i_i=(($189+12)|0);
+ HEAP32[(($bk139_i_i)>>2)]=$189;
+ var $fd140_i_i=(($189+8)|0);
+ HEAP32[(($fd140_i_i)>>2)]=$189;
+ label=338;break;
+ case 333: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 334: 
+ var $fd145_i_i=(($T_0_i_i+8)|0);
+ var $351=HEAP32[(($fd145_i_i)>>2)];
+ var $352=$T_0_i_i;
+ var $353=HEAP32[((48)>>2)];
+ var $cmp147_i_i=($352>>>0)<($353>>>0);
+ if($cmp147_i_i){label=337;break;}else{label=335;break;}
+ case 335: 
+ var $354=$351;
+ var $cmp150_i_i=($354>>>0)<($353>>>0);
+ if($cmp150_i_i){label=337;break;}else{label=336;break;}
+ case 336: 
+ var $bk155_i_i=(($351+12)|0);
+ HEAP32[(($bk155_i_i)>>2)]=$343;
+ HEAP32[(($fd145_i_i)>>2)]=$343;
+ var $fd157_i_i=(($189+8)|0);
+ var $_c6_i_i=$351;
+ HEAP32[(($fd157_i_i)>>2)]=$_c6_i_i;
+ var $bk158_i_i=(($189+12)|0);
+ var $T_0_c_i_i=$T_0_i_i;
+ HEAP32[(($bk158_i_i)>>2)]=$T_0_c_i_i;
+ var $parent159_i_i=(($189+24)|0);
+ HEAP32[(($parent159_i_i)>>2)]=0;
+ label=338;break;
+ case 337: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 338: 
+ var $355=HEAP32[((44)>>2)];
+ var $cmp250_i=($355>>>0)>($nb_0>>>0);
+ if($cmp250_i){label=339;break;}else{label=340;break;}
+ case 339: 
+ var $sub253_i=((($355)-($nb_0))|0);
+ HEAP32[((44)>>2)]=$sub253_i;
+ var $356=HEAP32[((56)>>2)];
+ var $357=$356;
+ var $add_ptr255_i=(($357+$nb_0)|0);
+ var $358=$add_ptr255_i;
+ HEAP32[((56)>>2)]=$358;
+ var $or257_i=$sub253_i|1;
+ var $add_ptr255_sum_i=((($nb_0)+(4))|0);
+ var $head258_i=(($357+$add_ptr255_sum_i)|0);
+ var $359=$head258_i;
+ HEAP32[(($359)>>2)]=$or257_i;
+ var $or260_i=$nb_0|3;
+ var $head261_i=(($356+4)|0);
+ HEAP32[(($head261_i)>>2)]=$or260_i;
+ var $add_ptr262_i=(($356+8)|0);
+ var $360=$add_ptr262_i;
+ var $mem_0=$360;label=341;break;
+ case 340: 
+ var $call265_i=___errno_location();
+ HEAP32[(($call265_i)>>2)]=12;
+ var $mem_0=0;label=341;break;
+ case 341: 
+ var $mem_0;
+ return $mem_0;
+  default: assert(0, "bad label: " + label);
+ }
+}
+Module["_malloc"] = _malloc;
+function _free($mem){
+ var label=0;
+ label = 1; 
+ while(1)switch(label){
+ case 1: 
+ var $cmp=($mem|0)==0;
+ if($cmp){label=140;break;}else{label=2;break;}
+ case 2: 
+ var $add_ptr=((($mem)-(8))|0);
+ var $0=$add_ptr;
+ var $1=HEAP32[((48)>>2)];
+ var $cmp1=($add_ptr>>>0)<($1>>>0);
+ if($cmp1){label=139;break;}else{label=3;break;}
+ case 3: 
+ var $head=((($mem)-(4))|0);
+ var $2=$head;
+ var $3=HEAP32[(($2)>>2)];
+ var $and=$3&3;
+ var $cmp2=($and|0)==1;
+ if($cmp2){label=139;break;}else{label=4;break;}
+ case 4: 
+ var $and5=$3&-8;
+ var $add_ptr_sum=((($and5)-(8))|0);
+ var $add_ptr6=(($mem+$add_ptr_sum)|0);
+ var $4=$add_ptr6;
+ var $and8=$3&1;
+ var $tobool9=($and8|0)==0;
+ if($tobool9){label=5;break;}else{var $p_0=$0;var $psize_0=$and5;label=56;break;}
+ case 5: 
+ var $prev_foot=$add_ptr;
+ var $5=HEAP32[(($prev_foot)>>2)];
+ var $cmp13=($and|0)==0;
+ if($cmp13){label=140;break;}else{label=6;break;}
+ case 6: 
+ var $add_ptr_sum231=(((-8)-($5))|0);
+ var $add_ptr16=(($mem+$add_ptr_sum231)|0);
+ var $6=$add_ptr16;
+ var $add17=((($5)+($and5))|0);
+ var $cmp18=($add_ptr16>>>0)<($1>>>0);
+ if($cmp18){label=139;break;}else{label=7;break;}
+ case 7: 
+ var $7=HEAP32[((52)>>2)];
+ var $cmp22=($6|0)==($7|0);
+ if($cmp22){label=54;break;}else{label=8;break;}
+ case 8: 
+ var $shr=$5>>>3;
+ var $cmp25=($5>>>0)<256;
+ if($cmp25){label=9;break;}else{label=21;break;}
+ case 9: 
+ var $add_ptr16_sum268=((($add_ptr_sum231)+(8))|0);
+ var $fd=(($mem+$add_ptr16_sum268)|0);
+ var $8=$fd;
+ var $9=HEAP32[(($8)>>2)];
+ var $add_ptr16_sum269=((($add_ptr_sum231)+(12))|0);
+ var $bk=(($mem+$add_ptr16_sum269)|0);
+ var $10=$bk;
+ var $11=HEAP32[(($10)>>2)];
+ var $shl=$shr<<1;
+ var $arrayidx=((72+($shl<<2))|0);
+ var $12=$arrayidx;
+ var $cmp29=($9|0)==($12|0);
+ if($cmp29){label=12;break;}else{label=10;break;}
+ case 10: 
+ var $13=$9;
+ var $cmp31=($13>>>0)<($1>>>0);
+ if($cmp31){label=20;break;}else{label=11;break;}
+ case 11: 
+ var $bk34=(($9+12)|0);
+ var $14=HEAP32[(($bk34)>>2)];
+ var $cmp35=($14|0)==($6|0);
+ if($cmp35){label=12;break;}else{label=20;break;}
+ case 12: 
+ var $cmp42=($11|0)==($9|0);
+ if($cmp42){label=13;break;}else{label=14;break;}
+ case 13: 
+ var $shl45=1<<$shr;
+ var $neg=$shl45^-1;
+ var $15=HEAP32[((32)>>2)];
+ var $and46=$15&$neg;
+ HEAP32[((32)>>2)]=$and46;
+ var $p_0=$6;var $psize_0=$add17;label=56;break;
+ case 14: 
+ var $cmp50=($11|0)==($12|0);
+ if($cmp50){label=15;break;}else{label=16;break;}
+ case 15: 
+ var $fd67_pre=(($11+8)|0);
+ var $fd67_pre_phi=$fd67_pre;label=18;break;
+ case 16: 
+ var $16=$11;
+ var $cmp53=($16>>>0)<($1>>>0);
+ if($cmp53){label=19;break;}else{label=17;break;}
+ case 17: 
+ var $fd56=(($11+8)|0);
+ var $17=HEAP32[(($fd56)>>2)];
+ var $cmp57=($17|0)==($6|0);
+ if($cmp57){var $fd67_pre_phi=$fd56;label=18;break;}else{label=19;break;}
+ case 18: 
+ var $fd67_pre_phi;
+ var $bk66=(($9+12)|0);
+ HEAP32[(($bk66)>>2)]=$11;
+ HEAP32[(($fd67_pre_phi)>>2)]=$9;
+ var $p_0=$6;var $psize_0=$add17;label=56;break;
+ case 19: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 20: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 21: 
+ var $18=$add_ptr16;
+ var $add_ptr16_sum260=((($add_ptr_sum231)+(24))|0);
+ var $parent=(($mem+$add_ptr16_sum260)|0);
+ var $19=$parent;
+ var $20=HEAP32[(($19)>>2)];
+ var $add_ptr16_sum261=((($add_ptr_sum231)+(12))|0);
+ var $bk73=(($mem+$add_ptr16_sum261)|0);
+ var $21=$bk73;
+ var $22=HEAP32[(($21)>>2)];
+ var $cmp74=($22|0)==($18|0);
+ if($cmp74){label=27;break;}else{label=22;break;}
+ case 22: 
+ var $add_ptr16_sum265=((($add_ptr_sum231)+(8))|0);
+ var $fd78=(($mem+$add_ptr16_sum265)|0);
+ var $23=$fd78;
+ var $24=HEAP32[(($23)>>2)];
+ var $25=$24;
+ var $cmp80=($25>>>0)<($1>>>0);
+ if($cmp80){label=26;break;}else{label=23;break;}
+ case 23: 
+ var $bk82=(($24+12)|0);
+ var $26=HEAP32[(($bk82)>>2)];
+ var $cmp83=($26|0)==($18|0);
+ if($cmp83){label=24;break;}else{label=26;break;}
+ case 24: 
+ var $fd86=(($22+8)|0);
+ var $27=HEAP32[(($fd86)>>2)];
+ var $cmp87=($27|0)==($18|0);
+ if($cmp87){label=25;break;}else{label=26;break;}
+ case 25: 
+ HEAP32[(($bk82)>>2)]=$22;
+ HEAP32[(($fd86)>>2)]=$24;
+ var $R_1=$22;label=34;break;
+ case 26: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 27: 
+ var $child_sum=((($add_ptr_sum231)+(20))|0);
+ var $arrayidx99=(($mem+$child_sum)|0);
+ var $28=$arrayidx99;
+ var $29=HEAP32[(($28)>>2)];
+ var $cmp100=($29|0)==0;
+ if($cmp100){label=28;break;}else{var $R_0=$29;var $RP_0=$28;label=29;break;}
+ case 28: 
+ var $add_ptr16_sum262=((($add_ptr_sum231)+(16))|0);
+ var $child=(($mem+$add_ptr16_sum262)|0);
+ var $arrayidx103=$child;
+ var $30=HEAP32[(($arrayidx103)>>2)];
+ var $cmp104=($30|0)==0;
+ if($cmp104){var $R_1=0;label=34;break;}else{var $R_0=$30;var $RP_0=$arrayidx103;label=29;break;}
+ case 29: 
+ var $RP_0;
+ var $R_0;
+ var $arrayidx108=(($R_0+20)|0);
+ var $31=HEAP32[(($arrayidx108)>>2)];
+ var $cmp109=($31|0)==0;
+ if($cmp109){label=30;break;}else{var $R_0=$31;var $RP_0=$arrayidx108;label=29;break;}
+ case 30: 
+ var $arrayidx113=(($R_0+16)|0);
+ var $32=HEAP32[(($arrayidx113)>>2)];
+ var $cmp114=($32|0)==0;
+ if($cmp114){label=31;break;}else{var $R_0=$32;var $RP_0=$arrayidx113;label=29;break;}
+ case 31: 
+ var $33=$RP_0;
+ var $cmp118=($33>>>0)<($1>>>0);
+ if($cmp118){label=33;break;}else{label=32;break;}
+ case 32: 
+ HEAP32[(($RP_0)>>2)]=0;
+ var $R_1=$R_0;label=34;break;
+ case 33: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 34: 
+ var $R_1;
+ var $cmp127=($20|0)==0;
+ if($cmp127){var $p_0=$6;var $psize_0=$add17;label=56;break;}else{label=35;break;}
+ case 35: 
+ var $add_ptr16_sum263=((($add_ptr_sum231)+(28))|0);
+ var $index=(($mem+$add_ptr16_sum263)|0);
+ var $34=$index;
+ var $35=HEAP32[(($34)>>2)];
+ var $arrayidx130=((336+($35<<2))|0);
+ var $36=HEAP32[(($arrayidx130)>>2)];
+ var $cmp131=($18|0)==($36|0);
+ if($cmp131){label=36;break;}else{label=38;break;}
+ case 36: 
+ HEAP32[(($arrayidx130)>>2)]=$R_1;
+ var $cond278=($R_1|0)==0;
+ if($cond278){label=37;break;}else{label=44;break;}
+ case 37: 
+ var $37=HEAP32[(($34)>>2)];
+ var $shl138=1<<$37;
+ var $neg139=$shl138^-1;
+ var $38=HEAP32[((36)>>2)];
+ var $and140=$38&$neg139;
+ HEAP32[((36)>>2)]=$and140;
+ var $p_0=$6;var $psize_0=$add17;label=56;break;
+ case 38: 
+ var $39=$20;
+ var $40=HEAP32[((48)>>2)];
+ var $cmp143=($39>>>0)<($40>>>0);
+ if($cmp143){label=42;break;}else{label=39;break;}
+ case 39: 
+ var $arrayidx149=(($20+16)|0);
+ var $41=HEAP32[(($arrayidx149)>>2)];
+ var $cmp150=($41|0)==($18|0);
+ if($cmp150){label=40;break;}else{label=41;break;}
+ case 40: 
+ HEAP32[(($arrayidx149)>>2)]=$R_1;
+ label=43;break;
+ case 41: 
+ var $arrayidx157=(($20+20)|0);
+ HEAP32[(($arrayidx157)>>2)]=$R_1;
+ label=43;break;
+ case 42: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 43: 
+ var $cmp162=($R_1|0)==0;
+ if($cmp162){var $p_0=$6;var $psize_0=$add17;label=56;break;}else{label=44;break;}
+ case 44: 
+ var $42=$R_1;
+ var $43=HEAP32[((48)>>2)];
+ var $cmp165=($42>>>0)<($43>>>0);
+ if($cmp165){label=53;break;}else{label=45;break;}
+ case 45: 
+ var $parent170=(($R_1+24)|0);
+ HEAP32[(($parent170)>>2)]=$20;
+ var $add_ptr16_sum264=((($add_ptr_sum231)+(16))|0);
+ var $child171=(($mem+$add_ptr16_sum264)|0);
+ var $arrayidx172=$child171;
+ var $44=HEAP32[(($arrayidx172)>>2)];
+ var $cmp173=($44|0)==0;
+ if($cmp173){label=49;break;}else{label=46;break;}
+ case 46: 
+ var $45=$44;
+ var $46=HEAP32[((48)>>2)];
+ var $cmp176=($45>>>0)<($46>>>0);
+ if($cmp176){label=48;break;}else{label=47;break;}
+ case 47: 
+ var $arrayidx182=(($R_1+16)|0);
+ HEAP32[(($arrayidx182)>>2)]=$44;
+ var $parent183=(($44+24)|0);
+ HEAP32[(($parent183)>>2)]=$R_1;
+ label=49;break;
+ case 48: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 49: 
+ var $child171_sum=((($add_ptr_sum231)+(20))|0);
+ var $arrayidx188=(($mem+$child171_sum)|0);
+ var $47=$arrayidx188;
+ var $48=HEAP32[(($47)>>2)];
+ var $cmp189=($48|0)==0;
+ if($cmp189){var $p_0=$6;var $psize_0=$add17;label=56;break;}else{label=50;break;}
+ case 50: 
+ var $49=$48;
+ var $50=HEAP32[((48)>>2)];
+ var $cmp192=($49>>>0)<($50>>>0);
+ if($cmp192){label=52;break;}else{label=51;break;}
+ case 51: 
+ var $arrayidx198=(($R_1+20)|0);
+ HEAP32[(($arrayidx198)>>2)]=$48;
+ var $parent199=(($48+24)|0);
+ HEAP32[(($parent199)>>2)]=$R_1;
+ var $p_0=$6;var $psize_0=$add17;label=56;break;
+ case 52: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 53: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 54: 
+ var $add_ptr6_sum=((($and5)-(4))|0);
+ var $head209=(($mem+$add_ptr6_sum)|0);
+ var $51=$head209;
+ var $52=HEAP32[(($51)>>2)];
+ var $and210=$52&3;
+ var $cmp211=($and210|0)==3;
+ if($cmp211){label=55;break;}else{var $p_0=$6;var $psize_0=$add17;label=56;break;}
+ case 55: 
+ HEAP32[((40)>>2)]=$add17;
+ var $53=HEAP32[(($51)>>2)];
+ var $and215=$53&-2;
+ HEAP32[(($51)>>2)]=$and215;
+ var $or=$add17|1;
+ var $add_ptr16_sum=((($add_ptr_sum231)+(4))|0);
+ var $head216=(($mem+$add_ptr16_sum)|0);
+ var $54=$head216;
+ HEAP32[(($54)>>2)]=$or;
+ var $prev_foot218=$add_ptr6;
+ HEAP32[(($prev_foot218)>>2)]=$add17;
+ label=140;break;
+ case 56: 
+ var $psize_0;
+ var $p_0;
+ var $55=$p_0;
+ var $cmp225=($55>>>0)<($add_ptr6>>>0);
+ if($cmp225){label=57;break;}else{label=139;break;}
+ case 57: 
+ var $add_ptr6_sum258=((($and5)-(4))|0);
+ var $head228=(($mem+$add_ptr6_sum258)|0);
+ var $56=$head228;
+ var $57=HEAP32[(($56)>>2)];
+ var $and229=$57&1;
+ var $phitmp=($and229|0)==0;
+ if($phitmp){label=139;break;}else{label=58;break;}
+ case 58: 
+ var $and237=$57&2;
+ var $tobool238=($and237|0)==0;
+ if($tobool238){label=59;break;}else{label=112;break;}
+ case 59: 
+ var $58=HEAP32[((56)>>2)];
+ var $cmp240=($4|0)==($58|0);
+ if($cmp240){label=60;break;}else{label=62;break;}
+ case 60: 
+ var $59=HEAP32[((44)>>2)];
+ var $add243=((($59)+($psize_0))|0);
+ HEAP32[((44)>>2)]=$add243;
+ HEAP32[((56)>>2)]=$p_0;
+ var $or244=$add243|1;
+ var $head245=(($p_0+4)|0);
+ HEAP32[(($head245)>>2)]=$or244;
+ var $60=HEAP32[((52)>>2)];
+ var $cmp246=($p_0|0)==($60|0);
+ if($cmp246){label=61;break;}else{label=140;break;}
+ case 61: 
+ HEAP32[((52)>>2)]=0;
+ HEAP32[((40)>>2)]=0;
+ label=140;break;
+ case 62: 
+ var $61=HEAP32[((52)>>2)];
+ var $cmp251=($4|0)==($61|0);
+ if($cmp251){label=63;break;}else{label=64;break;}
+ case 63: 
+ var $62=HEAP32[((40)>>2)];
+ var $add254=((($62)+($psize_0))|0);
+ HEAP32[((40)>>2)]=$add254;
+ HEAP32[((52)>>2)]=$p_0;
+ var $or255=$add254|1;
+ var $head256=(($p_0+4)|0);
+ HEAP32[(($head256)>>2)]=$or255;
+ var $add_ptr257=(($55+$add254)|0);
+ var $prev_foot258=$add_ptr257;
+ HEAP32[(($prev_foot258)>>2)]=$add254;
+ label=140;break;
+ case 64: 
+ var $and261=$57&-8;
+ var $add262=((($and261)+($psize_0))|0);
+ var $shr263=$57>>>3;
+ var $cmp264=($57>>>0)<256;
+ if($cmp264){label=65;break;}else{label=77;break;}
+ case 65: 
+ var $fd268=(($mem+$and5)|0);
+ var $63=$fd268;
+ var $64=HEAP32[(($63)>>2)];
+ var $add_ptr6_sum252253=$and5|4;
+ var $bk270=(($mem+$add_ptr6_sum252253)|0);
+ var $65=$bk270;
+ var $66=HEAP32[(($65)>>2)];
+ var $shl273=$shr263<<1;
+ var $arrayidx274=((72+($shl273<<2))|0);
+ var $67=$arrayidx274;
+ var $cmp275=($64|0)==($67|0);
+ if($cmp275){label=68;break;}else{label=66;break;}
+ case 66: 
+ var $68=$64;
+ var $69=HEAP32[((48)>>2)];
+ var $cmp278=($68>>>0)<($69>>>0);
+ if($cmp278){label=76;break;}else{label=67;break;}
+ case 67: 
+ var $bk281=(($64+12)|0);
+ var $70=HEAP32[(($bk281)>>2)];
+ var $cmp282=($70|0)==($4|0);
+ if($cmp282){label=68;break;}else{label=76;break;}
+ case 68: 
+ var $cmp291=($66|0)==($64|0);
+ if($cmp291){label=69;break;}else{label=70;break;}
+ case 69: 
+ var $shl294=1<<$shr263;
+ var $neg295=$shl294^-1;
+ var $71=HEAP32[((32)>>2)];
+ var $and296=$71&$neg295;
+ HEAP32[((32)>>2)]=$and296;
+ label=110;break;
+ case 70: 
+ var $cmp300=($66|0)==($67|0);
+ if($cmp300){label=71;break;}else{label=72;break;}
+ case 71: 
+ var $fd317_pre=(($66+8)|0);
+ var $fd317_pre_phi=$fd317_pre;label=74;break;
+ case 72: 
+ var $72=$66;
+ var $73=HEAP32[((48)>>2)];
+ var $cmp303=($72>>>0)<($73>>>0);
+ if($cmp303){label=75;break;}else{label=73;break;}
+ case 73: 
+ var $fd306=(($66+8)|0);
+ var $74=HEAP32[(($fd306)>>2)];
+ var $cmp307=($74|0)==($4|0);
+ if($cmp307){var $fd317_pre_phi=$fd306;label=74;break;}else{label=75;break;}
+ case 74: 
+ var $fd317_pre_phi;
+ var $bk316=(($64+12)|0);
+ HEAP32[(($bk316)>>2)]=$66;
+ HEAP32[(($fd317_pre_phi)>>2)]=$64;
+ label=110;break;
+ case 75: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 76: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 77: 
+ var $75=$add_ptr6;
+ var $add_ptr6_sum233=((($and5)+(16))|0);
+ var $parent326=(($mem+$add_ptr6_sum233)|0);
+ var $76=$parent326;
+ var $77=HEAP32[(($76)>>2)];
+ var $add_ptr6_sum234235=$and5|4;
+ var $bk328=(($mem+$add_ptr6_sum234235)|0);
+ var $78=$bk328;
+ var $79=HEAP32[(($78)>>2)];
+ var $cmp329=($79|0)==($75|0);
+ if($cmp329){label=83;break;}else{label=78;break;}
+ case 78: 
+ var $fd333=(($mem+$and5)|0);
+ var $80=$fd333;
+ var $81=HEAP32[(($80)>>2)];
+ var $82=$81;
+ var $83=HEAP32[((48)>>2)];
+ var $cmp335=($82>>>0)<($83>>>0);
+ if($cmp335){label=82;break;}else{label=79;break;}
+ case 79: 
+ var $bk338=(($81+12)|0);
+ var $84=HEAP32[(($bk338)>>2)];
+ var $cmp339=($84|0)==($75|0);
+ if($cmp339){label=80;break;}else{label=82;break;}
+ case 80: 
+ var $fd342=(($79+8)|0);
+ var $85=HEAP32[(($fd342)>>2)];
+ var $cmp343=($85|0)==($75|0);
+ if($cmp343){label=81;break;}else{label=82;break;}
+ case 81: 
+ HEAP32[(($bk338)>>2)]=$79;
+ HEAP32[(($fd342)>>2)]=$81;
+ var $R327_1=$79;label=90;break;
+ case 82: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 83: 
+ var $child356_sum=((($and5)+(12))|0);
+ var $arrayidx357=(($mem+$child356_sum)|0);
+ var $86=$arrayidx357;
+ var $87=HEAP32[(($86)>>2)];
+ var $cmp358=($87|0)==0;
+ if($cmp358){label=84;break;}else{var $R327_0=$87;var $RP355_0=$86;label=85;break;}
+ case 84: 
+ var $add_ptr6_sum236=((($and5)+(8))|0);
+ var $child356=(($mem+$add_ptr6_sum236)|0);
+ var $arrayidx362=$child356;
+ var $88=HEAP32[(($arrayidx362)>>2)];
+ var $cmp363=($88|0)==0;
+ if($cmp363){var $R327_1=0;label=90;break;}else{var $R327_0=$88;var $RP355_0=$arrayidx362;label=85;break;}
+ case 85: 
+ var $RP355_0;
+ var $R327_0;
+ var $arrayidx369=(($R327_0+20)|0);
+ var $89=HEAP32[(($arrayidx369)>>2)];
+ var $cmp370=($89|0)==0;
+ if($cmp370){label=86;break;}else{var $R327_0=$89;var $RP355_0=$arrayidx369;label=85;break;}
+ case 86: 
+ var $arrayidx374=(($R327_0+16)|0);
+ var $90=HEAP32[(($arrayidx374)>>2)];
+ var $cmp375=($90|0)==0;
+ if($cmp375){label=87;break;}else{var $R327_0=$90;var $RP355_0=$arrayidx374;label=85;break;}
+ case 87: 
+ var $91=$RP355_0;
+ var $92=HEAP32[((48)>>2)];
+ var $cmp381=($91>>>0)<($92>>>0);
+ if($cmp381){label=89;break;}else{label=88;break;}
+ case 88: 
+ HEAP32[(($RP355_0)>>2)]=0;
+ var $R327_1=$R327_0;label=90;break;
+ case 89: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 90: 
+ var $R327_1;
+ var $cmp390=($77|0)==0;
+ if($cmp390){label=110;break;}else{label=91;break;}
+ case 91: 
+ var $add_ptr6_sum246=((($and5)+(20))|0);
+ var $index394=(($mem+$add_ptr6_sum246)|0);
+ var $93=$index394;
+ var $94=HEAP32[(($93)>>2)];
+ var $arrayidx395=((336+($94<<2))|0);
+ var $95=HEAP32[(($arrayidx395)>>2)];
+ var $cmp396=($75|0)==($95|0);
+ if($cmp396){label=92;break;}else{label=94;break;}
+ case 92: 
+ HEAP32[(($arrayidx395)>>2)]=$R327_1;
+ var $cond279=($R327_1|0)==0;
+ if($cond279){label=93;break;}else{label=100;break;}
+ case 93: 
+ var $96=HEAP32[(($93)>>2)];
+ var $shl403=1<<$96;
+ var $neg404=$shl403^-1;
+ var $97=HEAP32[((36)>>2)];
+ var $and405=$97&$neg404;
+ HEAP32[((36)>>2)]=$and405;
+ label=110;break;
+ case 94: 
+ var $98=$77;
+ var $99=HEAP32[((48)>>2)];
+ var $cmp408=($98>>>0)<($99>>>0);
+ if($cmp408){label=98;break;}else{label=95;break;}
+ case 95: 
+ var $arrayidx414=(($77+16)|0);
+ var $100=HEAP32[(($arrayidx414)>>2)];
+ var $cmp415=($100|0)==($75|0);
+ if($cmp415){label=96;break;}else{label=97;break;}
+ case 96: 
+ HEAP32[(($arrayidx414)>>2)]=$R327_1;
+ label=99;break;
+ case 97: 
+ var $arrayidx422=(($77+20)|0);
+ HEAP32[(($arrayidx422)>>2)]=$R327_1;
+ label=99;break;
+ case 98: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 99: 
+ var $cmp427=($R327_1|0)==0;
+ if($cmp427){label=110;break;}else{label=100;break;}
+ case 100: 
+ var $101=$R327_1;
+ var $102=HEAP32[((48)>>2)];
+ var $cmp430=($101>>>0)<($102>>>0);
+ if($cmp430){label=109;break;}else{label=101;break;}
+ case 101: 
+ var $parent437=(($R327_1+24)|0);
+ HEAP32[(($parent437)>>2)]=$77;
+ var $add_ptr6_sum247=((($and5)+(8))|0);
+ var $child438=(($mem+$add_ptr6_sum247)|0);
+ var $arrayidx439=$child438;
+ var $103=HEAP32[(($arrayidx439)>>2)];
+ var $cmp440=($103|0)==0;
+ if($cmp440){label=105;break;}else{label=102;break;}
+ case 102: 
+ var $104=$103;
+ var $105=HEAP32[((48)>>2)];
+ var $cmp443=($104>>>0)<($105>>>0);
+ if($cmp443){label=104;break;}else{label=103;break;}
+ case 103: 
+ var $arrayidx449=(($R327_1+16)|0);
+ HEAP32[(($arrayidx449)>>2)]=$103;
+ var $parent450=(($103+24)|0);
+ HEAP32[(($parent450)>>2)]=$R327_1;
+ label=105;break;
+ case 104: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 105: 
+ var $child438_sum=((($and5)+(12))|0);
+ var $arrayidx455=(($mem+$child438_sum)|0);
+ var $106=$arrayidx455;
+ var $107=HEAP32[(($106)>>2)];
+ var $cmp456=($107|0)==0;
+ if($cmp456){label=110;break;}else{label=106;break;}
+ case 106: 
+ var $108=$107;
+ var $109=HEAP32[((48)>>2)];
+ var $cmp459=($108>>>0)<($109>>>0);
+ if($cmp459){label=108;break;}else{label=107;break;}
+ case 107: 
+ var $arrayidx465=(($R327_1+20)|0);
+ HEAP32[(($arrayidx465)>>2)]=$107;
+ var $parent466=(($107+24)|0);
+ HEAP32[(($parent466)>>2)]=$R327_1;
+ label=110;break;
+ case 108: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 109: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 110: 
+ var $or475=$add262|1;
+ var $head476=(($p_0+4)|0);
+ HEAP32[(($head476)>>2)]=$or475;
+ var $add_ptr477=(($55+$add262)|0);
+ var $prev_foot478=$add_ptr477;
+ HEAP32[(($prev_foot478)>>2)]=$add262;
+ var $110=HEAP32[((52)>>2)];
+ var $cmp479=($p_0|0)==($110|0);
+ if($cmp479){label=111;break;}else{var $psize_1=$add262;label=113;break;}
+ case 111: 
+ HEAP32[((40)>>2)]=$add262;
+ label=140;break;
+ case 112: 
+ var $and487=$57&-2;
+ HEAP32[(($56)>>2)]=$and487;
+ var $or488=$psize_0|1;
+ var $head489=(($p_0+4)|0);
+ HEAP32[(($head489)>>2)]=$or488;
+ var $add_ptr490=(($55+$psize_0)|0);
+ var $prev_foot491=$add_ptr490;
+ HEAP32[(($prev_foot491)>>2)]=$psize_0;
+ var $psize_1=$psize_0;label=113;break;
+ case 113: 
+ var $psize_1;
+ var $shr493=$psize_1>>>3;
+ var $cmp494=($psize_1>>>0)<256;
+ if($cmp494){label=114;break;}else{label=119;break;}
+ case 114: 
+ var $shl500=$shr493<<1;
+ var $arrayidx501=((72+($shl500<<2))|0);
+ var $111=$arrayidx501;
+ var $112=HEAP32[((32)>>2)];
+ var $shl503=1<<$shr493;
+ var $and504=$112&$shl503;
+ var $tobool505=($and504|0)==0;
+ if($tobool505){label=115;break;}else{label=116;break;}
+ case 115: 
+ var $or508=$112|$shl503;
+ HEAP32[((32)>>2)]=$or508;
+ var $arrayidx501_sum_pre=((($shl500)+(2))|0);
+ var $_pre=((72+($arrayidx501_sum_pre<<2))|0);
+ var $F502_0=$111;var $_pre_phi=$_pre;label=118;break;
+ case 116: 
+ var $arrayidx501_sum245=((($shl500)+(2))|0);
+ var $113=((72+($arrayidx501_sum245<<2))|0);
+ var $114=HEAP32[(($113)>>2)];
+ var $115=$114;
+ var $116=HEAP32[((48)>>2)];
+ var $cmp511=($115>>>0)<($116>>>0);
+ if($cmp511){label=117;break;}else{var $F502_0=$114;var $_pre_phi=$113;label=118;break;}
+ case 117: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 118: 
+ var $_pre_phi;
+ var $F502_0;
+ HEAP32[(($_pre_phi)>>2)]=$p_0;
+ var $bk521=(($F502_0+12)|0);
+ HEAP32[(($bk521)>>2)]=$p_0;
+ var $fd522=(($p_0+8)|0);
+ HEAP32[(($fd522)>>2)]=$F502_0;
+ var $bk523=(($p_0+12)|0);
+ HEAP32[(($bk523)>>2)]=$111;
+ label=140;break;
+ case 119: 
+ var $117=$p_0;
+ var $shr527=$psize_1>>>8;
+ var $cmp528=($shr527|0)==0;
+ if($cmp528){var $I526_0=0;label=122;break;}else{label=120;break;}
+ case 120: 
+ var $cmp532=($psize_1>>>0)>16777215;
+ if($cmp532){var $I526_0=31;label=122;break;}else{label=121;break;}
+ case 121: 
+ var $sub=((($shr527)+(1048320))|0);
+ var $shr536=$sub>>>16;
+ var $and537=$shr536&8;
+ var $shl538=$shr527<<$and537;
+ var $sub539=((($shl538)+(520192))|0);
+ var $shr540=$sub539>>>16;
+ var $and541=$shr540&4;
+ var $add542=$and541|$and537;
+ var $shl543=$shl538<<$and541;
+ var $sub544=((($shl543)+(245760))|0);
+ var $shr545=$sub544>>>16;
+ var $and546=$shr545&2;
+ var $add547=$add542|$and546;
+ var $sub548=(((14)-($add547))|0);
+ var $shl549=$shl543<<$and546;
+ var $shr550=$shl549>>>15;
+ var $add551=((($sub548)+($shr550))|0);
+ var $shl552=$add551<<1;
+ var $add553=((($add551)+(7))|0);
+ var $shr554=$psize_1>>>($add553>>>0);
+ var $and555=$shr554&1;
+ var $add556=$and555|$shl552;
+ var $I526_0=$add556;label=122;break;
+ case 122: 
+ var $I526_0;
+ var $arrayidx559=((336+($I526_0<<2))|0);
+ var $index560=(($p_0+28)|0);
+ var $I526_0_c=$I526_0;
+ HEAP32[(($index560)>>2)]=$I526_0_c;
+ var $arrayidx562=(($p_0+20)|0);
+ HEAP32[(($arrayidx562)>>2)]=0;
+ var $118=(($p_0+16)|0);
+ HEAP32[(($118)>>2)]=0;
+ var $119=HEAP32[((36)>>2)];
+ var $shl565=1<<$I526_0;
+ var $and566=$119&$shl565;
+ var $tobool567=($and566|0)==0;
+ if($tobool567){label=123;break;}else{label=124;break;}
+ case 123: 
+ var $or570=$119|$shl565;
+ HEAP32[((36)>>2)]=$or570;
+ HEAP32[(($arrayidx559)>>2)]=$117;
+ var $parent571=(($p_0+24)|0);
+ var $_c=$arrayidx559;
+ HEAP32[(($parent571)>>2)]=$_c;
+ var $bk572=(($p_0+12)|0);
+ HEAP32[(($bk572)>>2)]=$p_0;
+ var $fd573=(($p_0+8)|0);
+ HEAP32[(($fd573)>>2)]=$p_0;
+ label=136;break;
+ case 124: 
+ var $120=HEAP32[(($arrayidx559)>>2)];
+ var $cmp576=($I526_0|0)==31;
+ if($cmp576){var $cond=0;label=126;break;}else{label=125;break;}
+ case 125: 
+ var $shr578=$I526_0>>>1;
+ var $sub581=(((25)-($shr578))|0);
+ var $cond=$sub581;label=126;break;
+ case 126: 
+ var $cond;
+ var $shl582=$psize_1<<$cond;
+ var $K575_0=$shl582;var $T_0=$120;label=127;break;
+ case 127: 
+ var $T_0;
+ var $K575_0;
+ var $head583=(($T_0+4)|0);
+ var $121=HEAP32[(($head583)>>2)];
+ var $and584=$121&-8;
+ var $cmp585=($and584|0)==($psize_1|0);
+ if($cmp585){label=132;break;}else{label=128;break;}
+ case 128: 
+ var $shr588=$K575_0>>>31;
+ var $arrayidx591=(($T_0+16+($shr588<<2))|0);
+ var $122=HEAP32[(($arrayidx591)>>2)];
+ var $cmp593=($122|0)==0;
+ var $shl592=$K575_0<<1;
+ if($cmp593){label=129;break;}else{var $K575_0=$shl592;var $T_0=$122;label=127;break;}
+ case 129: 
+ var $123=$arrayidx591;
+ var $124=HEAP32[((48)>>2)];
+ var $cmp597=($123>>>0)<($124>>>0);
+ if($cmp597){label=131;break;}else{label=130;break;}
+ case 130: 
+ HEAP32[(($arrayidx591)>>2)]=$117;
+ var $parent602=(($p_0+24)|0);
+ var $T_0_c242=$T_0;
+ HEAP32[(($parent602)>>2)]=$T_0_c242;
+ var $bk603=(($p_0+12)|0);
+ HEAP32[(($bk603)>>2)]=$p_0;
+ var $fd604=(($p_0+8)|0);
+ HEAP32[(($fd604)>>2)]=$p_0;
+ label=136;break;
+ case 131: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 132: 
+ var $fd609=(($T_0+8)|0);
+ var $125=HEAP32[(($fd609)>>2)];
+ var $126=$T_0;
+ var $127=HEAP32[((48)>>2)];
+ var $cmp610=($126>>>0)<($127>>>0);
+ if($cmp610){label=135;break;}else{label=133;break;}
+ case 133: 
+ var $128=$125;
+ var $cmp613=($128>>>0)<($127>>>0);
+ if($cmp613){label=135;break;}else{label=134;break;}
+ case 134: 
+ var $bk620=(($125+12)|0);
+ HEAP32[(($bk620)>>2)]=$117;
+ HEAP32[(($fd609)>>2)]=$117;
+ var $fd622=(($p_0+8)|0);
+ var $_c241=$125;
+ HEAP32[(($fd622)>>2)]=$_c241;
+ var $bk623=(($p_0+12)|0);
+ var $T_0_c=$T_0;
+ HEAP32[(($bk623)>>2)]=$T_0_c;
+ var $parent624=(($p_0+24)|0);
+ HEAP32[(($parent624)>>2)]=0;
+ label=136;break;
+ case 135: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 136: 
+ var $129=HEAP32[((64)>>2)];
+ var $dec=((($129)-(1))|0);
+ HEAP32[((64)>>2)]=$dec;
+ var $cmp628=($dec|0)==0;
+ if($cmp628){var $sp_0_in_i=488;label=137;break;}else{label=140;break;}
+ case 137: 
+ var $sp_0_in_i;
+ var $sp_0_i=HEAP32[(($sp_0_in_i)>>2)];
+ var $cmp_i=($sp_0_i|0)==0;
+ var $next4_i=(($sp_0_i+8)|0);
+ if($cmp_i){label=138;break;}else{var $sp_0_in_i=$next4_i;label=137;break;}
+ case 138: 
+ HEAP32[((64)>>2)]=-1;
+ label=140;break;
+ case 139: 
+ _abort();
+ throw "Reached an unreachable!";
+ case 140: 
+ return;
+  default: assert(0, "bad label: " + label);
+ }
+}
+Module["_free"] = _free;
 // EMSCRIPTEN_END_FUNCS
-var ap=[aY,aY];var aq=[aZ,aZ];var ar=[a_,a_];var as=[a$,a$];return{_strlen:aT,_free:aQ,_memset:aS,_malloc:aP,_dywapitch_inittracking:aN,_memcpy:aR,_dywapitch_computepitch:aO,runPostSets:aJ,stackAlloc:at,stackSave:au,stackRestore:av,setThrew:aw,setTempRet0:az,setTempRet1:aA,setTempRet2:aB,setTempRet3:aC,setTempRet4:aD,setTempRet5:aE,setTempRet6:aF,setTempRet7:aG,setTempRet8:aH,setTempRet9:aI,dynCall_ii:aU,dynCall_v:aV,dynCall_iii:aW,dynCall_vi:aX}})
-// EMSCRIPTEN_END_ASM
-({ "Math": Math, "Int8Array": Int8Array, "Int16Array": Int16Array, "Int32Array": Int32Array, "Uint8Array": Uint8Array, "Uint16Array": Uint16Array, "Uint32Array": Uint32Array, "Float32Array": Float32Array, "Float64Array": Float64Array }, { "abort": abort, "assert": assert, "asmPrintInt": asmPrintInt, "asmPrintFloat": asmPrintFloat, "min": Math_min, "invoke_ii": invoke_ii, "invoke_v": invoke_v, "invoke_iii": invoke_iii, "invoke_vi": invoke_vi, "_sysconf": _sysconf, "_sbrk": _sbrk, "_fabs": _fabs, "___setErrNo": ___setErrNo, "___errno_location": ___errno_location, "_abort": _abort, "_time": _time, "_fflush": _fflush, "STACKTOP": STACKTOP, "STACK_MAX": STACK_MAX, "tempDoublePtr": tempDoublePtr, "ABORT": ABORT, "NaN": NaN, "Infinity": Infinity }, buffer);
-var _strlen = Module["_strlen"] = asm["_strlen"];
-var _free = Module["_free"] = asm["_free"];
-var _memset = Module["_memset"] = asm["_memset"];
-var _malloc = Module["_malloc"] = asm["_malloc"];
-var _dywapitch_inittracking = Module["_dywapitch_inittracking"] = asm["_dywapitch_inittracking"];
-var _memcpy = Module["_memcpy"] = asm["_memcpy"];
-var _dywapitch_computepitch = Module["_dywapitch_computepitch"] = asm["_dywapitch_computepitch"];
-var runPostSets = Module["runPostSets"] = asm["runPostSets"];
-var dynCall_ii = Module["dynCall_ii"] = asm["dynCall_ii"];
-var dynCall_v = Module["dynCall_v"] = asm["dynCall_v"];
-var dynCall_iii = Module["dynCall_iii"] = asm["dynCall_iii"];
-var dynCall_vi = Module["dynCall_vi"] = asm["dynCall_vi"];
-Runtime.stackAlloc = function(size) { return asm['stackAlloc'](size) };
-Runtime.stackSave = function() { return asm['stackSave']() };
-Runtime.stackRestore = function(top) { asm['stackRestore'](top) };
+// EMSCRIPTEN_END_FUNCS
 // Warning: printing of i64 values may be slightly rounded! No deep i64 math used, so precise i64 code not included
 var i64Math = null;
 // === Auto-generated postamble setup entry stuff ===
@@ -4220,3 +8723,4 @@ if (Module['noInitialRun']) {
 run();
 // {{POST_RUN_ADDITIONS}}
 // {{MODULE_ADDITIONS}}
+//@ sourceMappingURL=dywapitch.js.map
