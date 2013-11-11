@@ -13,6 +13,7 @@ var nextY = 0;
 var backgroundStaves = [];
 var connectors = [];
 var bars = [];
+var allNotes = [];
 var percussionBars = [];
 var canvas;
 
@@ -27,10 +28,7 @@ function BarManager(div){
     Vex.Flow.Renderer.Backends.RAPHAEL);
   ctx = renderer.getContext();
   
-  	createBackground(ctx);
-
-	var note1 = new Note("c#","4","4","");
-	
+  	createBackground(ctx);	
 }
 
 
@@ -51,7 +49,7 @@ function addNoteToStave(note){
 	redraw();
 	
 	if (currentBar.getPercentFull() >= 1){
-		if (nextX > 675){
+		if (nextX > 975){
 			nextY = nextY + staveDifference;
 			currentBar = new Bar(offset,nextY,barwidth);	
 			currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
@@ -64,6 +62,7 @@ function addNoteToStave(note){
 		bars.push(currentBar);
 	}
 	
+	allNotes.push(note);
 	
 }
 
@@ -73,6 +72,25 @@ function full(bar, note){
 	}
 	
 	return note;
+}
+
+//Checks for highlighted note and plays from there, sending the list of notes to the Music Manager to play
+function playPause(){
+	if (allNotes.length <= 0){
+		return;
+	}
+	if (highlightedNote == null){
+		playback(allNotes);	
+	}
+	
+	else {
+		for (var i = 0; i < allNotes.length; i++){
+			if (highlightedNote === allNotes[i]){
+				var playedNotes = allNotes.slice(i);
+				playback(playedNotes, canvas);
+			}
+		}
+	}
 	
 }
 
