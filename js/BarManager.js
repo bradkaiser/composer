@@ -122,16 +122,13 @@ function playPause(){
 		return;
 	}
 	if (highlightedNote == null){
-		playback(allNotes);	
+		playback(allNotes, canvas);	
 	}
 	
 	else {
-		for (var i = 0; i < allNotes.length; i++){
-			if (highlightedNote === allNotes[i]){
-				var playedNotes = allNotes.slice(i);
-				playback(playedNotes, canvas);
-			}
-		}
+		var index = allNotes.indexOf(highlightedNote);
+		var playedNotes = allNotes.slice(index);
+		playback(playedNotes, canvas);
 	}
 	
 }
@@ -239,7 +236,7 @@ function highlightNote(x,y){
 	if (highlightedNote != null){
 		highlightedRect.remove();
 		highlightedRect = null;
-		highlightedNote == null;
+		highlightedNote = null;
 	}
 	
 	var found = false;
