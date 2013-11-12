@@ -1,3 +1,5 @@
+//TODO: Formatter basedupon type of note
+
 Bar = (function() {
   function Bar(x,y,width) {
     this.init(x,y,width);
@@ -19,6 +21,7 @@ Bar = (function() {
 		this.stave = new Vex.Flow.Stave(x, y, width);
 		//Keeps track of how many notes by duration will make this bar full with 4 beats (4 quarter note equivalent)
 		this.percentFull = 0;
+		this.barIndex = -1;
     },
 
     addNote: function(note) {
@@ -30,8 +33,6 @@ Bar = (function() {
 		this.notes.push(note);
 		this.bar.addTickable(note.note);
 	},
-
-    SwapNotes: function(note1,note2) { },
 
     addClef: function(clef) {
       	this.stave.addClef(clef);

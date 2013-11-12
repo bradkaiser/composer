@@ -1,3 +1,21 @@
+$(document).ready(function(e){
+	  $("#subsidiaryDiv").dblclick(function(e){
+		  var posX = $(this).position().left,
+            posY = $(this).position().top;
+			highlightNote(e.pageX - posX,e.pageY - posY); 	
+	  });
+	  
+	  $(document).keyup(function(e){
+		  if (e.keyCode == 8){
+			if (highlightedNote != null){
+				deleteNote(highlightedNote);	
+			}
+		  }
+		  
+		  
+	  });
+	});
+
 
 var barwidth = 250;
 var offset = 75;
@@ -32,38 +50,62 @@ function BarManager(div){
 }
 
 
-function addNoteToStave(note){
+//Add, insert, or delete notes from allNotes array. This will then be passed sequetially to addNoteToStave to modify the drawing code
+function addNote(note){
+	allNotes.push(note);
+	createStaves(allNotes);
+}
+
+function deleteNote(note){
+	var index = allNotes.indexOf(highlightedNote);
+	allNotes.splice(index,1);
+	createStaves(allNotes)
+}
+
+function insertNote(note,index){
 	
-	if (currentBar == null){
-		currentBar = new Bar(nextX, nextY, barwidth);
-		currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
-		nextX = currentBar.x + currentBar.width;
-		bars.push(currentBar);
-	}
 	
-	//trim note if duration is greater than the beats left in the bar
-	note = full(currentBar, note);
+}
+
+function createStaves(notes){
 	
-	currentBar.addNote(note);
-	
-	redraw();
-	
-	if (currentBar.getPercentFull() >= 1){
-		if (nextX > 975){
-			nextY = nextY + staveDifference;
-			currentBar = new Bar(offset,nextY,barwidth);	
+	bars.length = 0;
+		
+	nextX = offset;
+	nextY = 0;
+	currentBar = new Bar(nextX, nextY, barwidth);
 			currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
 			nextX = currentBar.x + currentBar.width;
+			bars.push(currentBar);
+			currentBar.barIndex = bars.length - 1;
+	
+	for (var i = 0; i < notes.length; i++){
+		if (currentBar.getPercentFull() >= 1){
+			if (nextX > canvasWidth - 100){
+				nextY = nextY + staveDifference;
+				currentBar = new Bar(offset,nextY,barwidth);	
+				currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+				nextX = currentBar.x + currentBar.width;
+			}
+			else{
+				currentBar = new Bar(nextX,nextY,barwidth);
+				nextX = nextX + barwidth;
+			}
+			bars.push(currentBar);
+			currentBar.barIndex = bars.length - 1;
 		}
-		else{
-			currentBar = new Bar(nextX,nextY,barwidth);
-			nextX = nextX + barwidth;
-		}
-		bars.push(currentBar);
+		
+		//trim note if duration is greater than the beats left in the bar
+		notes[i] = full(currentBar, notes[i]);
+		
+		currentBar.addNote(notes[i]);
+		notes[i].setBar(currentBar);
+	
 	}
 	
-	allNotes.push(note);
 	
+	redraw();
+		
 }
 
 function full(bar, note){

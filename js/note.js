@@ -13,6 +13,7 @@ Note = (function() {
       	this.key = key + "/" + octave;
 		this.duration = 1/duration;
 		this.highlighted = false;
+		this.bar = null;
 		var that = this;
 		
 		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: duration+durationmodifier });
@@ -48,6 +49,10 @@ Note = (function() {
     setDuration: function(duration) { 
 		this.duration = duration;
 		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: this.duration });
+	},
+	
+	setBar: function(bar) { 
+		this.bar = bar;
 	},
 
     getDuration: function() {
