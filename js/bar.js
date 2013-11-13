@@ -26,7 +26,7 @@ Bar = (function() {
 
     addNote: function(note) {
 		if (this.percentFull + note.getDuration() > 1){
-		return;	
+			return;	
 		}
 		this.percentFull += note.getDuration();
 		
@@ -43,9 +43,8 @@ Bar = (function() {
     },
 	
 	draw: function(ctx, notesDraw) {
-		
     	var formatter = new Vex.Flow.Formatter().
-		joinVoices([this.bar]).format([this.bar], 250 * this.percentFull);
+		joinVoices([this.bar]).format([this.bar], 240 * this.percentFull);
 		this.stave.setContext(ctx).draw();
 		if (notesDraw == true){
 			this.bar.draw(ctx,this.stave);

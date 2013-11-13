@@ -13,6 +13,7 @@ Note = (function() {
       	this.key = key + "/" + octave;
 		this.midinote = keyToNote(key, octave);
 		this.duration = 1/duration;
+		this.durationmodifier = durationmodifier;
 		this.highlighted = false;
 		this.bar = null;
 		var that = this;
@@ -23,7 +24,7 @@ Note = (function() {
 		
 		if (durationmodifier == "d"){
 			this.duration = this.duration * (3/2);
-			addDot();	
+			this.addDot();	
 		}
 		
 		if (key.length > 1){
@@ -35,9 +36,7 @@ Note = (function() {
 			that.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
 		}
 		
-		function addDot(){
-			that.note.addDotToAll();	
-		}
+	
 		
 		function keyToNote(key, octave){
 			if (key.length > 1){
@@ -46,17 +45,16 @@ Note = (function() {
 			else {
 				key = key.toUpperCase();	
 			}
-			//Check for # notes and change to b
-			if (key.length > 1 && key.slice(1) == "#"){
-				
-			}
-			else{
-				return MIDI.keyToNote[key + octave];	
-			}
+			return MIDI.keyToNote[key + octave];	
+			
 			return null;
 		}
 	
     },
+	
+	addDot: function(){
+		this.note.addDotToAll();	
+	},
 
     setKey: function(key,octave) {
 		this.key = key + "/" + octave;
@@ -65,9 +63,23 @@ Note = (function() {
 
 	},
 
-    setDuration: function(duration) { 
+    setDuration: function(duration, wholeNote) { 
 		this.duration = duration;
-		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: this.duration });
+		if (!wholeNote){
+			if (this.duration == 0.375){
+				this.durationmodifier = "d";
+				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 4 + this.durationmodifier });
+				this.addDot();
+			}
+			else if (this.duration == 0.1875){
+				this.durationmodifier ="d";
+				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 8 + this.durationmodifier });
+				this.addDot();
+			}
+			else {
+				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 1/this.duration + this.durationmodifier });
+			}
+		}
 	},
 	
 	setHighlighted: function(hl) {

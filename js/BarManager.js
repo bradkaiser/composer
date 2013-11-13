@@ -1,3 +1,5 @@
+//TODO: prevent Backspace from going back
+
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
 		  var posX = $(this).position().left,
@@ -11,6 +13,7 @@ $(document).ready(function(e){
 				deleteNote(highlightedNote);	
 			}
 		  }
+		  e.preventDefault();
 		  
 		  
 	  });
@@ -31,8 +34,8 @@ var nextY = 0;
 var backgroundStaves = [];
 var connectors = [];
 var bars = [];
-var allNotes = [];
 var percussionBars = [];
+var allNotes = [];
 var canvas;
 
 var highlightedNote = null;
@@ -110,7 +113,12 @@ function createStaves(notes){
 
 function full(bar, note){
 	if (note.getDuration() + bar.getPercentFull() > 1){
-		note.setDuration(1- bar.getPercentFull());
+		if (note.getDuration() == 1){
+			note.setDuration(1-bar.getPercentFull(),true);	
+		}
+		else{
+			note.setDuration(1- bar.getPercentFull(), false);
+		}
 	}
 	
 	return note;
