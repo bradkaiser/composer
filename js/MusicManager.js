@@ -4,6 +4,7 @@ var barBeat = 2; //each bar is played for 2 seconds at 120BPM
 var currentDelay = 0;
 
 //TODO: Deal with AudioContext problem
+//TODO: Allow pausing and replaying
  function playback(notes, canvas) {
       	MIDI.loadPlugin({
 		soundfontUrl: "./soundfont/",

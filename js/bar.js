@@ -1,4 +1,6 @@
-//TODO: Formatter basedupon type of note
+//TODO: Formatter basedupon type of note\
+//TODO: beam previous 8th notes
+//TODO: check if a flat is previously in bar
 
 Bar = (function() {
   function Bar(x,y,width) {
