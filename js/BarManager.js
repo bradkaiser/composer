@@ -1,4 +1,5 @@
 //TODO: prevent Backspace from going back
+//TODO: Red and Blue Boxes for note playback
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
 		  var posX = $(this).position().left,
