@@ -14,7 +14,7 @@ Vex.Flow.RaphaelContext = (function() {
   RaphaelContext.prototype = {
     init: function(element) {
       this.element = element;
-      this.paper = Raphael(element);
+      this.paper = element;
       this.path = "";
       this.classes = "";
       this.pen = {x: 0, y: 0};
