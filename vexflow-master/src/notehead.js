@@ -40,6 +40,7 @@ Vex.Flow.NoteHead = (function() {
       this.duration = head_options.duration;
       this.displaced = head_options.displaced || false;
       this.stem_direction = head_options.stem_direction || Vex.Flow.StaveNote.STEM_UP;
+      this.classes = head_options.classes;
 
       // Get glyph code based on duration and note type. This could be
       // regular notes, rests, or other custom codes.
@@ -84,6 +85,7 @@ Vex.Flow.NoteHead = (function() {
           "Can't draw without a canvas context.");
 
       var ctx = this.context;
+      ctx.setClasses(this.classes);
       var head_x = this.absolute_x;
       var y = this.y;
 
@@ -100,12 +102,13 @@ Vex.Flow.NoteHead = (function() {
         if (key_style) {
           ctx.save();
           this.applyKeyStyle(key_style, ctx);
-          Vex.Flow.renderGlyph(ctx, head_x, y, glyph_font_scale, this.glyph_code);
+          Vex.Flow.renderGlyph(ctx, head_x, y, glyph_font_scale, this.glyph_code );
           ctx.restore();
         } else {
-          Vex.Flow.renderGlyph(ctx, head_x, y, glyph_font_scale, this.glyph_code);
+          Vex.Flow.renderGlyph(ctx, head_x, y, glyph_font_scale, this.glyph_code );
         }
       }
+      ctx.setClasses("");
     }
   };
 

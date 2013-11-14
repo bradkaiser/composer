@@ -517,7 +517,8 @@ Vex.Flow.parseNoteData = function(noteData) {
     duration: durationStringData.duration,
     type: type,
     dots: dots,
-    ticks: ticks
+    ticks: ticks,
+    classes: noteData.classes
   };
 };
 

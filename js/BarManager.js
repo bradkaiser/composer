@@ -43,11 +43,14 @@ var highlightedRect = null;
 
 var ctx;
 
+var noteId = 0;
+
 function BarManager(div){
-	canvas = Raphael(div,canvasWidth,canvasHeight);
-  var renderer = new Vex.Flow.Renderer(canvas,
+//	canvas = Raphael(div,canvasWidth,canvasHeight);
+  var renderer = new Vex.Flow.Renderer(div,
     Vex.Flow.Renderer.Backends.RAPHAEL);
   ctx = renderer.getContext();
+  canvas = ctx.paper;
   
   	createBackground(ctx);	
 }
@@ -55,6 +58,8 @@ function BarManager(div){
 
 //Add, insert, or delete notes from allNotes array. This will then be passed sequetially to addNoteToStave to modify the drawing code
 function addNote(note){
+    note.classes = "note-" + noteId;
+    noteId++;
 	allNotes.push(note);
 	createStaves(allNotes);
 }

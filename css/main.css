@@ -8,3 +8,8 @@
     width: 820px;
 	height:900px;
 }
+
+.note-1 {
+    fill: orange;
+    stroke: orange;
+}

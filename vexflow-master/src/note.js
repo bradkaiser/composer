@@ -34,6 +34,7 @@ Vex.Flow.Note = (function() {
       this.noteType = initData.type;
       this.setIntrinsicTicks(initData.ticks);
       this.modifiers = [];
+      this.classes = initData.classes;
 
       if (this.positions &&
           (typeof(this.positions) != "object" || !this.positions.length)) {

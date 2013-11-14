@@ -12,15 +12,13 @@ Note = (function() {
     init: function(key,octave,duration,durationmodifier) {
       	this.key = key + "/" + octave;
 		this.midinote = keyToNote(key, octave);
+        this.durationString = duration + durationmodifier;
 		this.duration = 1/duration;
 		this.durationmodifier = durationmodifier;
 		this.highlighted = false;
+        this.classes = "";
 		this.bar = null;
 		var that = this;
-		
-		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: duration+durationmodifier });
-
-
 		
 		if (durationmodifier == "d"){
 			this.duration = this.duration * (3/2);
@@ -50,6 +48,10 @@ Note = (function() {
 			return null;
 		}
 	
+    },
+
+    getVexNote: function() {
+        return new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
     },
 	
 	addDot: function(){
