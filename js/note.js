@@ -25,7 +25,7 @@ Note = (function() {
 		if (durationmodifier == "d"){
 			this.duration = this.duration * (3/2);	
 		}
-		this.durationString = (1/this.duration) + durationmodifier;
+		this.durationString = duration + durationmodifier;
 		this.highlighted = false;
         this.classes = "";
 		this.bar = null;
@@ -44,7 +44,7 @@ Note = (function() {
 		}
 		if (this.key.length > 3){
 			var modifier = this.key.slice(1,2);
-			that.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
+			this.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
 		}
 		return this.note;
     },
