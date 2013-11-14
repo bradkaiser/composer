@@ -33,7 +33,7 @@ Bar = (function() {
 		this.percentFull += note.getDuration();
 		
 		this.notes.push(note);
-		this.bar.addTickable(note.note);
+		this.bar.addTickable(note.getVexNote());
 	},
 
     addClef: function(clef) {

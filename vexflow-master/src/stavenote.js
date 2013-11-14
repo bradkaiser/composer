@@ -589,7 +589,9 @@ Vex.Flow.StaveNote = (function() {
           displaced: displaced,
           stem_direction: stem_direction,
           key_style: key_style,
-          glyph_font_scale: this.render_options.glyph_font_scale
+          glyph_font_scale: this.render_options.glyph_font_scale,
+          classes: this.classes
+
         });
 
         var head_x = note_head.getAbsoluteX();
@@ -646,7 +648,8 @@ Vex.Flow.StaveNote = (function() {
           y_bottom: y_bottom,
           y_extend: y_extend,
           stem_extension: this.stem_extension,
-          stem_direction: stem_direction
+          stem_direction: stem_direction,
+          classes: this.classes
         });
 
         note_stem_height = stem.getHeight();
@@ -670,6 +673,7 @@ Vex.Flow.StaveNote = (function() {
           flag_code = glyph.code_flag_upstem;
         }
 
+        ctx.setClasses(this.classes);
         // Draw the Flag
         Vex.Flow.renderGlyph(ctx, flag_x, flag_y,
             this.render_options.glyph_font_scale, flag_code);
@@ -689,6 +693,7 @@ Vex.Flow.StaveNote = (function() {
             ctx.restore();
         }
       }
+      ctx.setClasses("");
     }
   });
 

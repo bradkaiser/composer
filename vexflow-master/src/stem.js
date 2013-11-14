@@ -27,6 +27,7 @@ Vex.Flow.Stem = (function() {
       this.y_extend = options.y_extend || 0;
       this.stem_direction = options.stem_direction;
       this.stem_extension = options.stem_extension;
+      this.classes = options.classes;
 
       // Calculated properties
       this.stem_height = ((this.y_bottom - this.y_top) * this.stem_direction) +
@@ -45,6 +46,8 @@ Vex.Flow.Stem = (function() {
           "Can't draw without a canvas context.");
 
       var ctx = this.context;
+      ctx.setClasses(this.classes);
+
       var stem_x, stem_y;
       var stem_direction = this.stem_direction;
 
@@ -65,6 +68,8 @@ Vex.Flow.Stem = (function() {
         stem_y - (this.stem_height < 0 ? 0 : this.stem_height),
         Stem.WIDTH,
         Math.abs(this.stem_height));
+
+        ctx.setClasses("");
     }
   };
 

@@ -16,6 +16,7 @@ Vex.Flow.RaphaelContext = (function() {
       this.element = element;
       this.paper = Raphael(element);
       this.path = "";
+      this.classes = "";
       this.pen = {x: 0, y: 0};
       this.lineWidth = 1.0;
       this.state = {
@@ -88,6 +89,10 @@ Vex.Flow.RaphaelContext = (function() {
       this.lineWidth = width;
     },
 
+    setClasses: function(classes) {
+        this.classes = classes;
+    },
+
     scale: function(x, y) {
       this.state.scale = { x: x, y: y };
       this.attributes.scale = x + "," + y + ",0,0";
@@ -114,10 +119,13 @@ Vex.Flow.RaphaelContext = (function() {
         height = -height;
       }
 
-      this.paper.rect(x, y, width - 0.5, height - 0.5).
+      var rect = this.paper.rect(x, y, width - 0.5, height - 0.5).
         attr(this.attributes).
         attr("fill", "none").
-        attr("stroke-width", this.lineWidth); return this;
+        attr("stroke-width", this.lineWidth);
+      rect.node.setAttribute('class', this.classes);
+      
+      return this;
     },
 
     fillRect: function(x, y, width, height) {
@@ -126,8 +134,9 @@ Vex.Flow.RaphaelContext = (function() {
         height = -height;
       }
 
-      this.paper.rect(x, y, width - 0.5, height - 0.5).
+      var rect = this.paper.rect(x, y, width - 0.5, height - 0.5).
         attr(this.attributes);
+      rect.node.setAttribute('class', this.classes);
       return this;
     },
 
@@ -277,6 +286,7 @@ Vex.Flow.RaphaelContext = (function() {
         attr(this.attributes).
         attr("stroke-width", 0);
       this.glow(elem);
+      elem.node.setAttribute('class', this.classes);
       return this;
     },
 
@@ -286,6 +296,7 @@ Vex.Flow.RaphaelContext = (function() {
         attr("fill", "none").
         attr("stroke-width", this.lineWidth);
       this.glow(elem);
+      elem.node.setAttribute('class', this.classes);
       return this;
     },
 
@@ -299,6 +310,7 @@ Vex.Flow.RaphaelContext = (function() {
         attr(this.attributes).
         attr("fill", "none").
         attr("stroke", "none");
+      txt.node.setAttribute('class', this.classes);
 
       return {
         width: txt.getBBox().width,
