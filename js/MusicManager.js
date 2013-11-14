@@ -9,16 +9,15 @@ var currentPercDelay = 0;
 
 //TODO: Deal with AudioContext problem
 //TODO: Allow pausing and replaying
- function playback(notes, percNotes, canvas) {
+ function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {
 	 	$("audio").remove();
-	 
 	 
       	MIDI.loadPlugin({
 		soundfontUrl: "./soundfont/",
 		instruments: [ "acoustic_grand_piano", "synth_drum" ],
 		callback: function() {
-			currentDelay = 0;
-			currentPercDelay = 0;
+			currentDelay = 0 + notesDelay/2;
+			currentPercDelay = 0 + percNotesDelay/2;
 			player = MIDI.Player;
 			MIDI.programChange(0, 0);
 			MIDI.programChange(1, 118);
@@ -55,7 +54,7 @@ var currentPercDelay = 0;
 			
 			for (var i = 0; i < percNotes.length; i++){
 				// play the note
-				MIDI.noteOn(1, percNotes[i].midinote, velocity/3, currentPercDelay);
+				MIDI.noteOn(1, percNotes[i].midinote, velocity/4, currentPercDelay);
 				MIDI.noteOff(1, percNotes[i].midinote, currentPercDelay + barBeat * percNotes[i].getDuration());
 				
 				var note = percNotes[i];

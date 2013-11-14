@@ -1,6 +1,4 @@
 //TODO: prevent Backspace from going back
-//TODO: Add and delete percussion notes
-
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
 		  var posX = $(this).position().left,
@@ -50,14 +48,13 @@ var canvas;
 
 var highlightedNote = null;
 var highlightedRect = null;
-var highlightedNotePerc = false;
+var highlightedPercNote = false;
 
 var ctx;
 
 var noteId = 0;
 
 function BarManager(div){
-//	canvas = Raphael(div,canvasWidth,canvasHeight);
   var renderer = new Vex.Flow.Renderer(div,
     Vex.Flow.Renderer.Backends.RAPHAEL);
   ctx = renderer.getContext();
@@ -69,6 +66,12 @@ function BarManager(div){
 
 //Add, insert, or delete notes from allNotes array. This will then be passed sequetially to addNoteToStave to modify the drawing code
 function addNote(note, percussion){
+	if (highlightedNote != null){
+		highlightedRect.remove();
+		highlightedRect = null;
+		highlightedNote = null;
+	}
+	
 	if (!percussion){
         note.classes = "note-" + noteId;
         noteId++;
@@ -85,6 +88,12 @@ function addNote(note, percussion){
 }
 
 function deleteNote(note, percussion){
+	if (highlightedNote != null){
+		highlightedRect.remove();
+		highlightedRect = null;
+		highlightedNote = null;
+	}
+	
 	if (!percussion){
 		var index = allNotes.indexOf(highlightedNote);
 		allNotes.splice(index,1);
@@ -196,20 +205,58 @@ function full(bar, note){
 }
 
 //Checks for highlighted note and plays from there, sending the list of notes to the Music Manager to play
-
-//TODO: Check index of percussion note to play
+//Slightly convoluted math that was done to get the right indexes. But it works 
 function playPause(){
 	if (allNotes.length <= 0 && allPercNotes.length <= 0){
 		return;
 	}
 	if (highlightedNote == null){
-		playback(allNotes, allPercNotes, canvas);	
+		playback(allNotes, allPercNotes, canvas, 0, 0);	
 	}
-	
 	else {
-		var index = allNotes.indexOf(highlightedNote);
-		var playedNotes = allNotes.slice(index);
-		playback(playedNotes, canvas);
+		if (highlightedPercNote){
+			var index = allPercNotes.indexOf(highlightedNote);
+			var bar = highlightedNote.getBar();
+			var barIndex = percBars.indexOf(bar);
+			if (bars.length > barIndex){
+				melodyBar = bars[barIndex];
+				var beatIndex = bar.getBeatIndexOfNote(highlightedNote);
+				if (melodyBar.getPercentFull() >= (beatIndex + 1)/4)
+				{
+					var melodyNoteandOffset = melodyBar.getNoteByBeatIndex(beatIndex);
+					var melodyIndex = allNotes.indexOf(melodyNoteandOffset[0]);
+					playback(allNotes.slice(melodyIndex),allPercNotes.slice(index), canvas, melodyNoteandOffset[1], 0);
+				}
+				else{
+					playback(new Array(),allPercNotes.slice(index), canvas, 0,0);	
+				}
+			}
+			else{
+				playback(new Array(),allPercNotes.slice(index), canvas, 0,0);	
+			}
+		}
+		else{
+			var index = allNotes.indexOf(highlightedNote);
+			var bar = highlightedNote.getBar();
+			var barIndex = bars.indexOf(bar);
+			if (percBars.length > barIndex){
+				percussionBar = percBars[barIndex];
+				var beatIndex = bar.getBeatIndexOfNote(highlightedNote);
+				if (percussionBar.getPercentFull() >= (beatIndex + 1)/4)
+				{
+					var percNoteandOffset = percussionBar.getNoteByBeatIndex(beatIndex);
+					var percIndex = allPercNotes.indexOf(percNoteandOffset[0]);
+					playback(allNotes.slice(index),allPercNotes.slice(percIndex),canvas,  0, percNoteandOffset[1]);
+				}
+				else{
+					playback(allNotes.slice(index),new Array(),canvas, 0,0);	
+				}
+			}
+			else{
+				playback(allNotes.slice(index),new Array(),canvas, 0,0);	
+			}
+				
+		}
 	}
 	
 }
@@ -315,50 +362,42 @@ function createBackground(ctx){
 
 function highlightNote(x,y){
 	if (highlightedNote != null){
-		highlightedPercNote = false;
 		highlightedRect.remove();
 		highlightedRect = null;
 		highlightedNote = null;
 	}
 	
-	var found = false;
 	for (var i = 0; i < bars.length; i++){
 		for (var j = 0; j < bars[i].notes.length;j++){
 			var bb = bars[i].notes[j].note.getBoundingBox();
 			if (x <= (bb.x + bb.w) && x >= (bb.x) && y <= (bb.y + bb.h) && y > bb.y){
 				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
-				highlightedRect.attr("fill", "#f00");
+				highlightedRect.attr("fill", "red");
 				highlightedRect.attr("opacity", "0.2");
-				hightlightedPercNote = false;
-				found = true;
+				highlightedPercNote = false;
 				highlightedNote = bars[i].notes[j];
 				bars[i].notes[j].setHighlighted(true);
-				break;
+				return;
 			}
 			
 		}
-		if (found)
-			break;
 	}
-	found = false;
 	
 	for (var i = 0; i < percBars.length; i++){
 		for (var j = 0; j < percBars[i].notes.length;j++){
 			var bb = percBars[i].notes[j].note.getBoundingBox();
 			if (x <= (bb.x + bb.w) && x >= (bb.x) && y <= (bb.y + bb.h) && y > bb.y){
 				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
-				highlightedRect.attr("fill", "#f00");
+				highlightedRect.attr("fill", "red");
 				highlightedRect.attr("opacity", "0.2");
-				hightlightedPercNote = true;
+				highlightedPercNote = true;
 				found = true;
 				highlightedNote = percBars[i].notes[j];
 				percBars[i].notes[j].setHighlighted(true);
-				break;
+				return;
 			}
 			
 		}
-		if (found)
-			break;
 	}
 }
 

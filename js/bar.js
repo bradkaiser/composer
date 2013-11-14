@@ -1,4 +1,4 @@
-//TODO: Formatter basedupon type of note\
+//TODO: Formatter basedupon type of note
 //TODO: beam previous 8th notes
 //TODO: check if a flat is previously in bar
 
@@ -13,7 +13,6 @@ Bar = (function() {
 		this.y = y;
 		this.width = width;
 		this.notes = new Array();
-		this.notesPositions = new Array();
 		this.bar = new Vex.Flow.Voice({
 			num_beats: 4,
 			beat_value: 4,
@@ -68,7 +67,50 @@ Bar = (function() {
 	
 	getPercentFull: function(){
 		return this.percentFull;	
+	},
+	
+	//Returns note that is at least at the same beat as beat out of 4 beats per bar. Will also return an offset if larger than it.
+	getNoteByBeatIndex: function(beat){
+		var array = [];
+		if (beat == 0){
+			array.push(this.notes[0]);
+			array.push(0);
+			return array;	
+		}
+		var sum = 0;
+		for (var i = 1; i < this.notes.length; i++){
+			sum += this.notes[i-1].getDuration() * 4;
+			if (sum == beat){
+				array.push(this.notes[i]);
+				array.push(0);
+				return array;
+			}
+			if (sum > beat){
+				array.push(this.notes[i]);
+				array.push(sum-beat);
+				return array;	
+			}
+			
+		}
+		
+	},
+	
+	getBeatIndexOfNote: function(note){
+		var index= 0;
+		if (note == this.notes[0]){
+			return index;	
+		}
+		for (var i = 1; i < this.notes.length;i++){
+			index = index + this.notes[i-1].getDuration() * 4;
+			if (note == this.notes[i]){
+				return index;	
+			}
+		}
+		
+		return -1;
+		
 	}
+	
 	
 	
   };
