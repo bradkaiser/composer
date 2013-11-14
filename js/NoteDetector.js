@@ -6,15 +6,15 @@ var ComposerAudio = (function(ComposerAudio, Module) {
     ];
 
     var noteTypeList =  [
-            {name: "1", value: 32},
-            {name: "2d", value: 24},
-            {name: "2", value: 16},
-            {name: "4d", value: 12},
-            {name: "4", value: 8},
-            {name: "8d", value: 6},
-            {name: "8", value: 4},
-            {name: "16d", value: 3},
-            {name: "16", value: 2},
+            {type: {duration: 1, durationmodifier: ""}, value: 32},
+            {type: {duration: 2, durationmodifier: "d"}, value: 24},
+            {type: {duration: 2, durationmodifier: ""}, value: 16},
+            {type: {duration: 4, durationmodifier: "d"}, value: 12},
+            {type: {duration: 4, durationmodifier: ""}, value: 8},
+            {type: {duration: 8, durationmodifier: "d"}, value: 6},
+            {type: {duration: 8, durationmodifier: ""}, value: 4},
+            {type: {duration: 16, durationmodifier: "d"}, value: 3},
+            {type: {duration: 16, durationmodifier: ""}, value: 2}
     ];
 
     var log2 = function(x) {
@@ -29,10 +29,10 @@ var ComposerAudio = (function(ComposerAudio, Module) {
         return noteList[(keyNumber - 1) % 12]
     };
 
-    var repeatStr = function(times, str) {
+    var repeat = function(times, obj) {
         var result = new Array(times);
         for (var i = 0; i < times; i++) {
-            result[i] = str;
+            result[i] = obj;
         }
 
         return result;
@@ -87,7 +87,7 @@ var ComposerAudio = (function(ComposerAudio, Module) {
                     var occurrences = Math.floor( thirtySecondNotes / noteType.value );
                     thirtySecondNotes = thirtySecondNotes % noteType.value;
 
-                    result = result.concat(repeatStr(occurrences, noteType.name));
+                    result = result.concat(repeat(occurrences, noteType.type));
             });
 
             return result;
@@ -99,8 +99,11 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             var octave = keyNumberToOctave(keyNumber);
             var note = keyNumberToNote(keyNumber);
 
+
             var results = types.map(function (type) {
-                    return {note: note, octave: octave, type: type};
+                type.note = note;
+                type.octave = octave;
+                return type;
             });
 
             return results;

@@ -6,8 +6,8 @@
 
 <script src="http://d3lp1msu2r81bx.cloudfront.net/kjs/js/lib/kinetic-v4.7.2.min.js"></script>
 <script src="js/jquery-1.10.2.min.js"></script>
+<script src="js/raphael.js"></script>
 
-<!--
 <script src="vexflow-master/src/vex.js"></script>
 <script src="vexflow-master/src/flow.js"></script>
 <script src="vexflow-master/src/fraction.js"></script>
@@ -63,12 +63,13 @@
 <script src="vexflow-master/src/frethandfinger.js"></script>
 <script src="vexflow-master/src/stringnumber.js"></script>
 <script src="vexflow-master/src/strokes.js"></script>
--->
+
+<!--
 <script src="js/vexflow-min.js"></script>
+-->
 
 <script src="js/note.js"></script>
 <script src="js/bar.js"></script>
-<script src="js/raphael.js"></script>
 <script src="js/BarManager.js"></script>
 <script src="js/MusicManager.js"></script>
 <script src="js/MIDI.js"></script>
@@ -109,26 +110,29 @@ Play/Pause
 
 <script>
 var $recordButton = $('#record-button');
+var recordButton = $('#record-button').get(0); //non jquery version
 
 var bufferSize = 2048;
 var bpm = 120;
-var microphone = new ComposerAudio.Microphone($recordButton.get(),bufferSize);
+var microphone = new ComposerAudio.Microphone(recordButton,bufferSize);
 var noteDetector = new ComposerAudio.NoteDetector(bufferSize, bpm);
 
 //Create score
 BarManager("subsidiaryDiv");
 
 $recordButton.on('click', function(e) {
-    e.preventDefault();
     $('#record-button-inner').toggleClass('square');
 });
         
-$recordButton.on('rawAudio', function(e) { noteDetector.process(e.detail) });
+recordButton.addEventListener('rawAudio', function(e) { 
+        noteDetector.process(e.detail) ;
+    });
+
 window.addEventListener('noteEvent', function(e) {
     console.log(e.detail) 
     e.detail.forEach( function(noteDetail) {
-        var note = new Note(noteDetail.note, noteDetail.octave, noteDetail.type, "" );
-        addNoteToStave(note);
+        var note = new Note(noteDetail.note, noteDetail.octave, noteDetail.duration, noteDetail.durationmodifier );
+        addNote(note);
     });
 });
 
