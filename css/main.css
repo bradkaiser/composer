@@ -92,7 +92,7 @@ rect, path {
 	height:900px;
 }
 
-rect.note-1, path.note-1 {
+.note-1 {
     fill: orange;
     stroke: orange;
 }
