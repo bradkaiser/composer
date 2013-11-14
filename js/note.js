@@ -75,7 +75,7 @@ Note = (function() {
     },
 	
 	setPercussion: function() {
-    	this.midinote = this.keyToNote("c","4");
+    	this.midinote = this.keyToNote("c","2");
     },
 	
 	setBar: function(bar) { 

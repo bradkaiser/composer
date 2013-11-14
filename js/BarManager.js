@@ -55,7 +55,8 @@ var ctx;
 var noteId = 0;
 
 function BarManager(div){
-  var renderer = new Vex.Flow.Renderer(div, Vex.Flow.Renderer.Backends.RAPHAEL);
+  var renderer = new Vex.Flow.Renderer(div,
+    Vex.Flow.Renderer.Backends.RAPHAEL);
   ctx = renderer.getContext();
   canvas = ctx.paper;
   
