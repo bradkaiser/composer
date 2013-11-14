@@ -10,14 +10,21 @@ Note = (function() {
 
   Note.prototype = {
     init: function(key,octave,duration,durationmodifier) {
+		if (durationmodifier == "r"){
+			key = "b";
+			octave = "4";	
+		}
       	this.key = key + "/" + octave;
-		this.midinote = keyToNote(key, octave);
+		if (durationmodifier != "r"){
+			this.midinote = this.keyToNote(key, octave);
+		}
+		else {this.midinote = null;}
+		
 		this.duration = 1/duration;
 		this.durationmodifier = durationmodifier;
 		this.highlighted = false;
 		this.bar = null;
 		var that = this;
-		
 		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: duration+durationmodifier });
 
 
@@ -35,20 +42,6 @@ Note = (function() {
 		function addAccidental(modifier){
 			that.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
 		}
-		
-	
-		
-		function keyToNote(key, octave){
-			if (key.length > 1){
-				key = key.charAt(0).toUpperCase() + key.slice(1);
-			}
-			else {
-				key = key.toUpperCase();	
-			}
-			return MIDI.keyToNote[key + octave];	
-			
-			return null;
-		}
 	
     },
 	
@@ -58,8 +51,9 @@ Note = (function() {
 
     setKey: function(key,octave) {
 		this.key = key + "/" + octave;
-		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: this.duration });
-		this.midinote = keyToNote(key,octave);;
+		this.note = null;
+		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 1/this.duration + this.durationmodifier });
+		this.midinote = this.keyToNote(key,octave);
 
 	},
 
@@ -86,6 +80,10 @@ Note = (function() {
     	this.highlighted = hl;
     },
 	
+	setPercussion: function() {
+    	this.midinote = this.keyToNote("c","4");
+    },
+	
 	setBar: function(bar) { 
 		this.bar = bar;
 	},
@@ -101,6 +99,19 @@ Note = (function() {
 	getBoundingBox: function() {
     	return this.note.getBoundingBox();
     },
+	
+		
+	keyToNote: function(key, octave){
+		if (key.length > 1){
+			key = key.charAt(0).toUpperCase() + key.slice(1);
+		}
+		else {
+			key = key.toUpperCase();	
+		}
+		return MIDI.keyToNote[key + octave];	
+		
+		return null;
+	}
 	
 	
   };

@@ -1,4 +1,5 @@
 //TODO: prevent Backspace from going back
+//TODO: Add and delete percussion notes
 
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
@@ -10,7 +11,10 @@ $(document).ready(function(e){
 	  $(document).keyup(function(e){
 		  if (e.keyCode == 8){
 			if (highlightedNote != null){
-				deleteNote(highlightedNote);	
+				if (highlightedPercNote)
+					deleteNote(highlightedNote, true);
+				else
+					deleteNote(highlightedNote, false);	
 			}
 		  }
 		  e.preventDefault();
@@ -27,19 +31,26 @@ var canvasHeight = 1000;
 var sheetWidth = 1050;
 var staveDifference = 200;
 var percussionDifference = 80;
+
 var currentBar = null;
+var currentPercBar = null;
+
 var nextX = offset;
 var nextY = 0;
+var nextPercX = offset;
+var nextPercY = percussionDifference;
 
 var backgroundStaves = [];
 var connectors = [];
 var bars = [];
-var percussionBars = [];
+var percBars = [];
 var allNotes = [];
+var allPercNotes = [];
 var canvas;
 
 var highlightedNote = null;
 var highlightedRect = null;
+var highlightedNotePerc = false;
 
 var ctx;
 
@@ -54,15 +65,32 @@ function BarManager(div){
 
 
 //Add, insert, or delete notes from allNotes array. This will then be passed sequetially to addNoteToStave to modify the drawing code
-function addNote(note){
-	allNotes.push(note);
-	createStaves(allNotes);
+function addNote(note, percussion){
+	if (!percussion){
+		allNotes.push(note);
+	}
+	else{
+		note.setKey("b","4");
+		note.setPercussion();
+		allPercNotes.push(note);
+	}
+	
+	createStaves(allNotes, allPercNotes);
+
 }
 
-function deleteNote(note){
-	var index = allNotes.indexOf(highlightedNote);
-	allNotes.splice(index,1);
-	createStaves(allNotes)
+function deleteNote(note, percussion){
+	if (!percussion){
+		var index = allNotes.indexOf(highlightedNote);
+		allNotes.splice(index,1);
+	}
+	else{
+		var index = allPercNotes.indexOf(highlightedNote);
+		allPercNotes.splice(index,1);
+	}
+	
+	createStaves(allNotes, allPercNotes);
+
 }
 
 function insertNote(note,index){
@@ -70,17 +98,23 @@ function insertNote(note,index){
 	
 }
 
-function createStaves(notes){
+//Change drawing for percnotes
+function createStaves(notes, percNotes){
 	
 	bars.length = 0;
+	percBars.length = 0;
 		
 	nextX = offset;
 	nextY = 0;
+	nextPercX = offset;
+	nextPercY = percussionDifference;
+	
+	//re-add all musical notes
 	currentBar = new Bar(nextX, nextY, barwidth);
-			currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
-			nextX = currentBar.x + currentBar.width;
-			bars.push(currentBar);
-			currentBar.barIndex = bars.length - 1;
+	currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+	nextX = currentBar.x + currentBar.width;
+	bars.push(currentBar);
+	currentBar.barIndex = bars.length - 1;
 	
 	for (var i = 0; i < notes.length; i++){
 		if (currentBar.getPercentFull() >= 1){
@@ -103,8 +137,41 @@ function createStaves(notes){
 		
 		currentBar.addNote(notes[i]);
 		notes[i].setBar(currentBar);
-	
 	}
+		
+		
+		
+	//re-add all percussion notes
+	currentPercBar = new Bar(nextPercX, nextPercY, barwidth);
+	currentPercBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+	currentPercBar.setClef("percussion");
+	nextPercX = currentPercBar.x + currentPercBar.width;
+	percBars.push(currentPercBar);
+	currentPercBar.barIndex = percBars.length - 1;
+	
+	for (var i = 0; i < percNotes.length; i++){
+		if (currentPercBar.getPercentFull() >= 1){
+			if (nextPercX > canvasWidth - 100){
+				nextPercY = nextPercY + staveDifference;
+				currentPercBar = new Bar(offset,nextPercY,barwidth);	
+				currentPercBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+				nextPercX = currentPercBar.x + currentPercBar.width;
+			}
+			else{
+				currentPercBar = new Bar(nextPercX,nextPercY,barwidth);
+				nextPercX = nextPercX + barwidth;
+			}
+			percBars.push(currentPercBar);
+			currentPercBar.barIndex = percBars.length - 1;
+		}
+	
+		//trim note if duration is greater than the beats left in the bar
+		percNotes[i] = full(currentPercBar, percNotes[i]);
+		
+		currentPercBar.addNote(percNotes[i]);
+		percNotes[i].setBar(currentPercBar);
+	}
+	
 	
 	
 	redraw();
@@ -125,12 +192,14 @@ function full(bar, note){
 }
 
 //Checks for highlighted note and plays from there, sending the list of notes to the Music Manager to play
+
+//TODO: Check index of percussion note to play
 function playPause(){
-	if (allNotes.length <= 0){
+	if (allNotes.length <= 0 && allPercNotes.length <= 0){
 		return;
 	}
 	if (highlightedNote == null){
-		playback(allNotes, canvas);	
+		playback(allNotes, allPercNotes, canvas);	
 	}
 	
 	else {
@@ -242,6 +311,7 @@ function createBackground(ctx){
 
 function highlightNote(x,y){
 	if (highlightedNote != null){
+		highlightedPercNote = false;
 		highlightedRect.remove();
 		highlightedRect = null;
 		highlightedNote = null;
@@ -255,9 +325,30 @@ function highlightNote(x,y){
 				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
 				highlightedRect.attr("fill", "#f00");
 				highlightedRect.attr("opacity", "0.2");
+				hightlightedPercNote = false;
 				found = true;
 				highlightedNote = bars[i].notes[j];
 				bars[i].notes[j].setHighlighted(true);
+				break;
+			}
+			
+		}
+		if (found)
+			break;
+	}
+	found = false;
+	
+	for (var i = 0; i < percBars.length; i++){
+		for (var j = 0; j < percBars[i].notes.length;j++){
+			var bb = percBars[i].notes[j].note.getBoundingBox();
+			if (x <= (bb.x + bb.w) && x >= (bb.x) && y <= (bb.y + bb.h) && y > bb.y){
+				highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
+				highlightedRect.attr("fill", "#f00");
+				highlightedRect.attr("opacity", "0.2");
+				hightlightedPercNote = true;
+				found = true;
+				highlightedNote = percBars[i].notes[j];
+				percBars[i].notes[j].setHighlighted(true);
 				break;
 			}
 			
@@ -294,7 +385,7 @@ function redraw(){
 	for (var i = 0; i < bars.length;i++){
 		bars[i].draw(ctx,true);	
 	}
-	for (var i = 0; i < percussionBars.length;i++){
-		percussionBars[i].draw(ctx,true);	
+	for (var i = 0; i < percBars.length;i++){
+		percBars[i].draw(ctx,true);	
 	}
 }
