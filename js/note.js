@@ -20,24 +20,16 @@ Note = (function() {
 		}
 		else {this.midinote = null;}
 		
-		this.midinote = keyToNote(key, octave);
-        this.durationString = duration + durationmodifier;
 		this.duration = 1/duration;
 		this.durationmodifier = durationmodifier;
+		if (durationmodifier == "d"){
+			this.duration = this.duration * (3/2);	
+		}
+		this.durationString = (1/this.duration) + durationmodifier;
 		this.highlighted = false;
         this.classes = "";
 		this.bar = null;
-		var that = this;
-		
-		if (durationmodifier == "d"){
-			this.duration = this.duration * (3/2);
-			this.addDot();	
-		}
-		
-		if (key.length > 1){
-			var modifier = key.slice(1);
-			addAccidental(modifier);
-		}
+		this.note = null;
 		
 		function addAccidental(modifier){
 			that.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
@@ -46,7 +38,15 @@ Note = (function() {
     },
 
     getVexNote: function() {
-        return new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
+        this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
+		if (this.durationmodifier == "d"){
+			this.addDot();	
+		}
+		if (this.key.length > 3){
+			var modifier = this.key.slice(1,2);
+			that.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
+		}
+		return this.note;
     },
 	
 	addDot: function(){
@@ -55,27 +55,21 @@ Note = (function() {
 
     setKey: function(key,octave) {
 		this.key = key + "/" + octave;
-		this.note = null;
-		this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 1/this.duration + this.durationmodifier });
 		this.midinote = this.keyToNote(key,octave);
 
 	},
 
     setDuration: function(duration, wholeNote) { 
 		this.duration = duration;
+		this.durationString = (1/duration) + this.durationmodifier;
 		if (!wholeNote){
 			if (this.duration == 0.375){
 				this.durationmodifier = "d";
-				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 4 + this.durationmodifier });
-				this.addDot();
+				this.durationString = 4 + "d";
 			}
 			else if (this.duration == 0.1875){
 				this.durationmodifier ="d";
-				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 8 + this.durationmodifier });
-				this.addDot();
-			}
-			else {
-				this.note = new Vex.Flow.StaveNote({ keys: [this.key], duration: 1/this.duration + this.durationmodifier });
+				this.durationString = 8 + "d";
 			}
 		}
 	},

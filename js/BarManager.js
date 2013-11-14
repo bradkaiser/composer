@@ -149,7 +149,6 @@ function createStaves(notes, percNotes){
 	//re-add all percussion notes
 	currentPercBar = new Bar(nextPercX, nextPercY, barwidth);
 	currentPercBar.setBegBarType(Vex.Flow.Barline.type.NONE);
-	currentPercBar.setClef("percussion");
 	nextPercX = currentPercBar.x + currentPercBar.width;
 	percBars.push(currentPercBar);
 	currentPercBar.barIndex = percBars.length - 1;
