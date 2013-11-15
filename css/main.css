@@ -4,78 +4,71 @@
  * Black #212008
  * Yellow #FFF560
  * White #FFFFFA
- * Blue #02D7D8
+ * Blue #00BEE8
  */
 
 
+html {
+    background: #FFFFFA;
+    color: #212008;
+}
 
+#mainDiv {
+    margin: auto;
+    width: 1127px;
+    height: 1000px;
+}
+
+#subsidiaryDiv {
+    float:left;;
+    width: 1075px;
+    height: 1000px;
+}
 
 /* record button */
-#record-button-holder {
+#record-button{
     width: 100px;
     height: 100px;
     margin: auto;
     position: relative;
-}
-
-#record-button {
-    width: 75px;
-    height: 75px;
-    border-radius: 50%;
-    margin: auto;
-    position: relative;
     cursor: pointer;
-    border: 2px solid #212008;
-    float: left;
+    color: #FF4F46; 
     transition: all .2s ease-in-out;
 }
 
-#record-button:hover {
-    transform: scale(1.1,1.1);
-    -webkit-transform: scale(1.1,1.1);
-    transition: all .2s ease-in-out;
-}
-
-#record-button-inner {
-    background: #FF4F46;
-    width: 25%;
-    height: 25%;
+#record-button i {
     position: absolute;
-    top: 0; left: 0; bottom: 0; right: 0;
     margin: auto;
-    border-radius: 50%;
-    -webkit-animation: flash-color 1s ease-in-out 0s infinite alternate;
+    top: 0; right: 0; bottom: 0; left: 0
 }
 
-#record-button:hover #record-button-inner {
-    background: #FF886E;
-    transition: all .2s ease-in-out;
+.pulse-red {
+    -webkit-animation: flash-color 1s ease-in-out 0s infinite alternate; 
+}
+
+
+#record-button:hover i {
     -webkit-animation: none;
-}
-
-#record-button #record-button-inner {
-    background: #FF4F46;
-    transition: all .2s ease-in-out;
-}
-
-#record-button-inner.square {
-    border-radius: 0%;
+    color: #FF886E;
     transition: all .2s ease-in-out;
 }
 
 @-webkit-keyframes flash-color {
-    0% {background: #FF4F46;}
-    70% {background: #FF4F46;}
-    100% {background: #FF886E;}
+    0% {color: #FF4F46;}
+    70% {color: #FF4F46;}
+    100% {color: #FF886E;}
+}
+
+#play-control {
+    color: #00BEE8;
+    cursor: pointer;
+    float:left;
+    width:28px;
 }
 
 
+/* other stuff */ 
 
-/* other stuff */
-
-html {
-    background: #FFFFFA
-}
 
 rect, path {
     fill: #212008;
@@ -92,7 +85,4 @@ rect, path {
 	height:900px;
 }
 
-.note-1 {
-    fill: orange;
-    stroke: orange;
-}
+
