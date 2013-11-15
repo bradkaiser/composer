@@ -106,10 +106,14 @@ Note = (function() {
 		else {
 			key = key.toUpperCase();	
 		}
+		if (key.charAt(1) == "n"){
+			key = key.slice(0,1);	
+		}
 		return MIDI.keyToNote[key + octave];	
 		
 		return null;
-	}
+	},
+	
 	
 	
   };

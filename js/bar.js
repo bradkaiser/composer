@@ -1,6 +1,5 @@
 //TODO: Formatter basedupon type of note
 //TODO: beam previous 8th notes
-//TODO: check if a flat is previously in bar
 
 Bar = (function() {
   function Bar(x,y,width) {
@@ -23,6 +22,7 @@ Bar = (function() {
 		//Keeps track of how many notes by duration will make this bar full with 4 beats (4 quarter note equivalent)
 		this.percentFull = 0;
 		this.barIndex = -1;
+		this.beams = [];
     },
 
     addNote: function(note) {
@@ -49,6 +49,9 @@ Bar = (function() {
 		this.stave.setContext(ctx).draw();
 		if (notesDraw == true){
 			this.bar.draw(ctx,this.stave);
+			for (var i = 0; i < this.beams.length; i ++){
+				this.beams[i].setContext(ctx).draw();	
+			}
 		}
     },
 	
