@@ -34,6 +34,9 @@ Note = (function() {
     },
 
     getVexNote: function() {
+		if (this.note != null){
+			return this.note;	
+		}
         this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
 		if (this.durationmodifier == "d"){
 			this.addDot();	
@@ -67,6 +70,10 @@ Note = (function() {
 				this.durationmodifier ="d";
 				this.durationString = 8 + "d";
 			}
+			else if (this.duration == 0.09375){
+				this.durationmodifier ="d";
+				this.durationString = 16 + "d";
+			}
 		}
 	},
 	
@@ -75,7 +82,7 @@ Note = (function() {
     },
 	
 	setPercussion: function() {
-    	this.midinote = this.keyToNote("c","2");
+    	this.midinote = this.keyToNote("d","3");
     },
 	
 	setBar: function(bar) { 
