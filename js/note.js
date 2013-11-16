@@ -14,6 +14,8 @@ Note = (function() {
 			key = "b";
 			octave = "4";	
 		}
+		this.originalKey = key;
+		this.originalOctave = octave;
       	this.key = key + "/" + octave;
 		if (durationmodifier != "r"){
 			this.midinote = this.keyToNote(key, octave);
@@ -30,18 +32,20 @@ Note = (function() {
         this.classes = "";
 		this.bar = null;
 		this.note = null;
+		this.playableNotes = new Array("c","db","d","eb","e","f","gb","g","ab","a","bb","b");
 	
     },
 
-    getVexNote: function() {
-        this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
-		if (this.durationmodifier == "d"){
-			this.addDot();	
-		}
-		if (this.key.length > 3){
-			var modifier = this.key.slice(1,2);
-			this.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
-		}
+    getVexNote: function(createNew) {
+			this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
+			if (this.durationmodifier == "d"){
+				this.addDot();	
+			}
+			if (this.key.length > 3){
+				var modifier = this.key.slice(1,2);
+				this.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
+			}
+		
 		return this.note;
     },
 	
@@ -50,6 +54,8 @@ Note = (function() {
 	},
 
     setKey: function(key,octave) {
+		this.originalKey = key;
+		this.originalOctave = octave;
 		this.key = key + "/" + octave;
 		this.midinote = this.keyToNote(key,octave);
 
@@ -117,6 +123,44 @@ Note = (function() {
 		
 		return null;
 	},
+	
+	upTone:  function(){
+		if (this.originalKey == "d" && this.originalOctave == 6){
+			return;	
+		}
+		for (var i = 0; i < this.playableNotes.length;i++){
+			if (this.originalKey == this.playableNotes[i]){
+				if (this.playableNotes[i] == "b"){
+					this.setKey("c", (this.originalOctave + 1));
+					return;
+				}
+				else{
+					this.setKey(this.playableNotes[i+1], this.originalOctave);
+					return;
+				}
+			}
+		}
+	},
+	
+	downTone:  function(){
+		if (this.originalKey == "a" && this.originalOctave == "3"){
+			return;	
+		}
+		for (var i = 0; i < this.playableNotes.length;i++){
+			if (this.originalKey == this.playableNotes[i]){
+				if (this.playableNotes[i] == "c"){
+					this.setKey("b", (this.originalOctave -1));
+					return;
+				}
+				else{
+					this.setKey(this.playableNotes[i-1], this.originalOctave);
+					return;
+				}
+			}
+		}
+	},
+	
+	
 	
 	
 	

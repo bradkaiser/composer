@@ -1,11 +1,16 @@
-//TODO: prevent Backspace from going back
 //TODO: Red and Blue Boxes for note playback
 //TODO: Export to MusicXML
+//TODO: add tutorial page
+//TODO: TestTone button
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
 		  var posX = $(this).position().left,
             posY = $(this).position().top;
 			highlightNote(e.pageX - posX,e.pageY - posY); 	
+	  });
+	  
+	  $(document).keydown(function(e){
+		  e.preventDefault();
 	  });
 	  
 	  $(document).keyup(function(e){
@@ -17,7 +22,75 @@ $(document).ready(function(e){
 					deleteNote(highlightedNote, false);	
 			}
 		  }
-		  e.preventDefault();
+		  
+		   if (e.keyCode == 38){
+			if (highlightedNote != null){
+				if (!highlightedPercNote){
+					highlightedNote.upTone();
+					createStaves(allNotes,allPercNotes);
+				}
+			}
+		  }
+		  
+		   if (e.keyCode == 40){
+			if (highlightedNote != null){
+				if (!highlightedPercNote){
+					highlightedNote.downTone();
+					createStaves(allNotes,allPercNotes);
+				}
+			}
+		  }
+		  
+		  if (e.keyCode == 39){
+			if (highlightedNote != null){
+				if (!highlightedPercNote){
+					if (allNotes.indexOf(highlightedNote) != allNotes.length-1){
+						var index = allNotes.indexOf(highlightedNote);
+						var tempNote = highlightedNote;
+						var tempNote2 = allNotes[allNotes.indexOf(highlightedNote)+1];
+						allNotes.splice(index,2);
+						allNotes.splice(index,0,tempNote2,tempNote);
+					}
+				}
+				else{
+					if (allPercNotes.indexOf(highlightedNote) != allPercNotes.length-1){
+						var index = allPercNotes.indexOf(highlightedNote);
+						var tempNote = highlightedNote;
+						var tempNote2 = allPercNotes[allPercNotes.indexOf(highlightedNote)+1];
+						allPercNotes.splice(index,2);
+						allPercNotes.splice(index,0,tempNote2,tempNote);
+					}
+				}
+				
+				createStaves(allNotes,allPercNotes);
+			}
+		  }
+		  
+		  
+		  if (e.keyCode == 37){
+			if (highlightedNote != null){
+				if (!highlightedPercNote){
+					if (allNotes.indexOf(highlightedNote) != 0){
+						var index = allNotes.indexOf(highlightedNote);
+						var tempNote = highlightedNote;
+						var tempNote2 = allNotes[allNotes.indexOf(highlightedNote)-1];
+						allNotes.splice(index-1,2);
+						allNotes.splice(index-1,0,tempNote,tempNote2);
+					}
+				}
+				else{
+					if (allPercNotes.indexOf(highlightedNote) != 0){
+						var index = allPercNotes.indexOf(highlightedNote);
+						var tempNote = highlightedNote;
+						var tempNote2 = allPercNotes[allPercNotes.indexOf(highlightedNote)-1];
+						allPercNotes.splice(index-1,2);
+						allPercNotes.splice(index-1,0,tempNote,tempNotes);
+					}
+				}
+				
+				createStaves(allNotes,allPercNotes);
+			}
+		  }
 		  
 		  
 	  });
@@ -186,8 +259,6 @@ function createStaves(notes, percNotes){
 		currentPercBar.addNote(percNotes[i]);
 		percNotes[i].setBar(currentPercBar);
 	}
-	
-	
 	
 	redraw();
 		
@@ -432,6 +503,13 @@ function redraw(){
 	}
 	for (var i = 0; i < bars.length;i++){
 		bars[i].draw(ctx,true);	
+	}
+	
+	if (highlightedNote != null){
+		var bb = highlightedNote.getBoundingBox();
+		highlightedRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
+		highlightedRect.attr("fill", "red");
+		highlightedRect.attr("opacity", "0.2");
 	}
 	
 }

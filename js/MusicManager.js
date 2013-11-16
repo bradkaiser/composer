@@ -9,9 +9,7 @@ var MIDIplayer;
 //For ease may not allow pausing. May have to play and wait for it to finish. Or just stop it
 
 //TODO: Allow pausing and replaying
- function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {
-	 	$("audio").remove();
-	 
+ function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {	 
 	 	if (player == null){
 			MIDI.loadPlugin({
 			soundfontUrl: "./soundfont/",
@@ -24,13 +22,12 @@ var MIDIplayer;
 			MIDI.programChange(1, 118);
 			MIDIplayer = MIDI;
 			playing(notes,percNotes,canvas,notesDelay,percNotesDelay);	
-			player.playing = true;	
 		}
 			});
 		} 
 		else {
 			if (player.playing){
-				player.stop();	
+				
 			}
 			else{
 				playing(notes,percNotes,canvas,notesDelay,percNotesDelay);
@@ -40,6 +37,7 @@ var MIDIplayer;
 }
 
 function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
+		player.playing = true;	
 		currentDelay = 0 + notesDelay/2;
 		currentPercDelay = 0 + percNotesDelay/2;
 		var velocity = 127; // how hard the note hits
@@ -60,12 +58,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 					highlightedPlayRect = null;	
 				}
 				var bb = note.getBoundingBox();
-				if (note.getDuration() == 1/8){
-					highlightedPlayRect = canvas.rect(bb.x-5,bb.y-5,bb.w+10, bb.h+10,10);	
-				}
-				else{
-					highlightedPlayRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
-				}
+				highlightedPlayRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
 				highlightedPlayRect.attr("fill", "blue");
 				highlightedPlayRect.attr("opacity", "0.2");
 				
@@ -90,12 +83,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 					highlightedPlayPercRect = null;	
 				}
 				var bb = note.getBoundingBox();
-				if (note.getDuration() == 1/8){
-					highlightedPlayPercRect = canvas.rect(bb.x-5,bb.y-5,bb.w+10, bb.h+10,10);	
-				}
-				else{
-					highlightedPlayPercRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
-				}
+				highlightedPlayPercRect = canvas.rect(bb.x-10,bb.y-10,bb.w+20, bb.h + 20, 10);
 				highlightedPlayPercRect.attr("fill", "blue");
 				highlightedPlayPercRect.attr("opacity", "0.2");	
 			}	
@@ -121,7 +109,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 		}
 		setTimeout(function(){
 			player.playing = false;
-			
+			$("audio").remove();
 		}, latestDelay * 1000);
 			
 		
