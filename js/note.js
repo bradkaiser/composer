@@ -34,9 +34,6 @@ Note = (function() {
     },
 
     getVexNote: function() {
-		if (this.note != null){
-			return this.note;	
-		}
         this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
 		if (this.durationmodifier == "d"){
 			this.addDot();	
@@ -49,7 +46,7 @@ Note = (function() {
     },
 	
 	addDot: function(){
-		this.note.addDotToAll();	
+		this.note.addDot(0);	
 	},
 
     setKey: function(key,octave) {

@@ -1,5 +1,5 @@
 //TODO: Formatter basedupon type of note
-//TODO: beam previous 8th notes
+//TODO: Fix formatting of some beams
 
 Bar = (function() {
   function Bar(x,y,width) {
@@ -34,6 +34,7 @@ Bar = (function() {
 			var previousNote = this.notes[this.notes.length-1];
 			if (previousNote.getDuration() < 0.25 && (note.getDuration() < 0.25)){
 				if ((this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 1) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 2) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 3) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 0)) { 
+					
 					var array = new Array(this.notes[this.notes.length-1].getVexNote(),note.getVexNote());
 					var beam = new Vex.Flow.Beam(array);
 					this.beams.push(beam);

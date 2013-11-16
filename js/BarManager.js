@@ -1,5 +1,6 @@
 //TODO: prevent Backspace from going back
 //TODO: Red and Blue Boxes for note playback
+//TODO: Export to MusicXML
 $(document).ready(function(e){
 	  $("#subsidiaryDiv").dblclick(function(e){
 		  var posX = $(this).position().left,
@@ -34,10 +35,10 @@ var percussionDifference = 80;
 var currentBar = null;
 var currentPercBar = null;
 
-var nextX = offset;
-var nextY = 0;
-var nextPercX = offset;
-var nextPercY = percussionDifference;
+var startingX = offset;
+var startingY = 30;
+var startingPercX = offset;
+var startingPercY = percussionDifference + startingY;
 
 var backgroundStaves = [];
 var connectors = [];
@@ -119,10 +120,10 @@ function createStaves(notes, percNotes){
 	bars.length = 0;
 	percBars.length = 0;
 		
-	nextX = offset;
-	nextY = 0;
-	nextPercX = offset;
-	nextPercY = percussionDifference;
+	nextX = startingX;
+	nextY = startingY;
+	nextPercX = startingPercX;
+	nextPercY = startingPercY;
 	
 	//re-add all musical notes
 	currentBar = new Bar(nextX, nextY, barwidth);
@@ -265,7 +266,7 @@ function playPause(){
 
 function createBackground(ctx){
   	
-	var barBack1 = new Bar(25,0,sheetWidth);
+	var barBack1 = new Bar(25,startingY,sheetWidth);
 	barBack1.addClef("treble");
 	barBack1.addTimeSignature();
 	barBack1.draw(ctx,false);
@@ -284,7 +285,7 @@ function createBackground(ctx){
         connector2.setContext(ctx).draw();
 	
 
-	var barBack2 = new Bar(25, staveDifference * 1,sheetWidth);
+	var barBack2 = new Bar(25, staveDifference * 1 + startingY,sheetWidth);
 	barBack2.addClef("treble");
 	barBack2.addTimeSignature();
 	barBack2.draw(ctx, false);
@@ -303,7 +304,7 @@ function createBackground(ctx){
         connector4.setContext(ctx).draw();
 	
 	
-	var barBack3 = new Bar(25, staveDifference * 2,sheetWidth);
+	var barBack3 = new Bar(25, staveDifference * 2 + startingY,sheetWidth);
 	barBack3.addClef("treble");
 	barBack3.addTimeSignature();
 	barBack3.draw(ctx, false);
@@ -322,7 +323,7 @@ function createBackground(ctx){
         connector6.setContext(ctx).draw();	
 		
 		
-	var barBack4 = new Bar(25, staveDifference * 3,sheetWidth);
+	var barBack4 = new Bar(25, staveDifference * 3 + startingY,sheetWidth);
 	barBack4.addClef("treble");
 	barBack4.addTimeSignature();
 	barBack4.setEndBarType(Vex.Flow.Barline.type.END);
@@ -426,10 +427,11 @@ function redraw(){
 	for (var i = 0; i < connectors.length;i++){
 		connectors[i].setContext(ctx).draw();		
 	}
-	for (var i = 0; i < bars.length;i++){
-		bars[i].draw(ctx,true);	
-	}
 	for (var i = 0; i < percBars.length;i++){
 		percBars[i].draw(ctx,true);	
 	}
+	for (var i = 0; i < bars.length;i++){
+		bars[i].draw(ctx,true);	
+	}
+	
 }
