@@ -141,7 +141,7 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             });
 
             return result;
-        }
+        };
         
         //don't break up note too delicately, just get the largest chunk that will fit.
         var msToLargestNoteType = function(duration) {
@@ -166,22 +166,6 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             }
 
 
-        }
-
-        var rawEventToNotes = function(raw) {
-            var types = msToNoteType(raw.duration);
-            var keyNumber = freqToKeyNumber(raw.freq);
-            var octave = keyNumberToOctave(keyNumber);
-            var note = keyNumberToNote(keyNumber);
-
-
-            var results = types.map(function (type) {
-                type.note = note;
-                type.octave = octave;
-                return type;
-            });
-
-            return results;
         };
 
         var findPeak = function(sampleRate, data) {
@@ -208,51 +192,7 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             }
 
             return result;
-        }
-
-
-
-
-        //public methods
-        this.barf = function(rawData) { 
-            var pcm = rawData.data;
-            var time = rawData.time;
-
-            var result = rawToPitch(pcm);
-            console.log(result);
-
-            if (result.confidence > 1) {
-                if(on) { 
-                    //do nothing;
-                } else {
-                    on = true;
-                    startTime = new Date().getTime();
-                    currentFreq = result.pitch;
-                }
-            } else {
-                if (on) {
-                    on = false;
-                    endTime = new Date().getTime();
-                    
-                    //console.log({freq: this.currentFreq, duration: this.endTime - this.startTime, start: this.startTime});
-                    var audioObject = {freq: currentFreq, duration: endTime - startTime, start: startTime};
-                    var noteObjects = rawEventToNotes(audioObject);
-//                    noteObjects.forEach(function (note) {
-//                        compressOctaves(note);
-//                    });
-                    var noteEvent = new CustomEvent("noteEvent",{detail: noteObjects});
-                    window.dispatchEvent(noteEvent);
-                } else {
-                    //do nothing
-                }
-            }
         };
-
-        var lastPublished;
-        var currentKeyNumber;
-        var currentNoteStartTime;
-
-
 
         //accumulate pitchdetected audio data so we can pull out notes that are longer than cutoff
         this.generateAccumulator = function(howMany, callBack) {
@@ -331,14 +271,7 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             this.chunkNotes(keyNumObj);
 
         };
-
-
     }
-
-
-
-
-
 
     ComposerAudio.NoteDetector = NoteDetector;
 
