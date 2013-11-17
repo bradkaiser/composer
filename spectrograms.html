@@ -37,9 +37,12 @@
     <div id="cepstrum" class="graph-holder">
         <h2>Cepstrum</h2>
     </div> 
-    <div id="dywapitch">
+    <div id="dywapitch" class="graph-holder">
         <h2>Dywapitch</h2>
         <div id="pitch"> </div>
+    </div>
+    <div id="highpass" class="graph-holder">
+        <h2>High Pass</h2>
     </div>
 
 </body>
@@ -81,9 +84,10 @@ BarGraph.prototype.update = function(data) {
 
 
 var analyzerBarGraph = new BarGraph('#analyzer',255);
-var pcmGraph = new BarGraph('#pcm', 2);
-var fftGraph = new BarGraph('#fft', .1);
+var pcmGraph = new BarGraph('#pcm', .5);
+var fftGraph = new BarGraph('#fft', .05);
 var cepstrumGraph = new BarGraph('#cepstrum', .5);
+var highpassGraph = new BarGraph('#highpass', .5);
 
 
 
@@ -115,7 +119,7 @@ function success(e) {
 
     var audioInput = context.createMediaStreamSource(e);
 
-    var bufferSize = 512;
+    var bufferSize = 1024;
     recorder = context.createJavaScriptNode(bufferSize,2,2);
 
     var fft = new RFFT(bufferSize, 44100);
@@ -124,6 +128,12 @@ function success(e) {
     var analyser = context.createAnalyser();
     analyser.smoothingTimeConstant = 0.0;
     analyser.fftSize = bufferSize; 
+
+    var filter = context.createBiquadFilter();
+    filter.type = 1; //HIGHPASS
+    filter.frequency.value = 8000;
+
+    percussionRecorder = context.createJavaScriptNode(bufferSize,2,2);
 
     //dywapitch stuff
     var trackerPtr = Module._malloc(12);
@@ -160,19 +170,22 @@ function success(e) {
         var confidence = Module.getValue(trackerPtr + 8, 'i8');
         console.log(result + " " + confidence + " " + prevPitch);
         Module._free(rawPtr);
+    };
+
+    percussionRecorder.onaudioprocess = function(stream) {
+        var raw = stream.inputBuffer.getChannelData(0);
+        highpassGraph.update(raw);
     }
 
     audioInput.connect(volume);
     volume.connect(analyser);
     analyser.connect(recorder);
     recorder.connect(context.destination);
+
+    volume.connect(filter);
+    filter.connect(percussionRecorder);
+    percussionRecorder.connect(context.destination);
+
 }
-
-
-
-
-
-    //update([1,2,3,4,8,8,8]);
-
 </script>
 </html>
