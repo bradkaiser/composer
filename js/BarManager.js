@@ -1,16 +1,10 @@
-//TODO: Red and Blue Boxes for note playback
 //TODO: Export to MusicXML
 //TODO: add tutorial page
-//TODO: TestTone button
 $(document).ready(function(e){
-	  $("#subsidiaryDiv").dblclick(function(e){
-		  var posX = $(this).position().left,
-            posY = $(this).position().top;
-			highlightNote(e.pageX - posX,e.pageY - posY); 	
-	  });
-	  
-	  $(document).keydown(function(e){
-		  e.preventDefault();
+  $(document).keydown(function(e){
+		  if (e.keyCode == 8 || e.keyCode == 38 || e.keyCode == 40 || e.keyCode == 37|| e.keyCode == 39 || e.keyCode == 13){
+			    e.preventDefault();
+		  }
 	  });
 	  
 	  $(document).keyup(function(e){
@@ -21,6 +15,10 @@ $(document).ready(function(e){
 				else
 					deleteNote(highlightedNote, false);	
 			}
+		  }
+		  
+		  if (e.keyCode == 13){
+				playPause();  
 		  }
 		  
 		   if (e.keyCode == 38){
@@ -155,7 +153,6 @@ function addNote(note, percussion){
 		allNotes.push(note);
 	}
 	else{
-		note.setKey("b","4");
 		note.setPercussion();
 		allPercNotes.push(note);
 	}
@@ -185,10 +182,6 @@ function deleteNote(note, percussion){
 
 }
 
-function insertNote(note,index){
-	
-	
-}
 
 //Change drawing for percnotes
 function createStaves(notes, percNotes){
@@ -436,7 +429,7 @@ function createBackground(ctx){
 	connectors.push(connector8);	
 }
 
-function highlightNote(x,y){
+function highlightAndPlayNote(x,y){
 	if (highlightedNote != null){
 		highlightedRect.remove();
 		highlightedRect = null;
@@ -453,6 +446,7 @@ function highlightNote(x,y){
 				highlightedPercNote = false;
 				highlightedNote = bars[i].notes[j];
 				bars[i].notes[j].setHighlighted(true);
+				play(highlightedNote);
 				return;
 			}
 			
@@ -470,6 +464,7 @@ function highlightNote(x,y){
 				found = true;
 				highlightedNote = percBars[i].notes[j];
 				percBars[i].notes[j].setHighlighted(true);
+				play(highlightedNote);
 				return;
 			}
 			

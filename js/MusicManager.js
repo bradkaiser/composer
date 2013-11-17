@@ -4,11 +4,12 @@ var highlightedPlayPercRect = null;
 var barBeat = 2; //each bar is played for 2 seconds at 120BPM
 var currentDelay = 0;
 var currentPercDelay = 0;
-var MIDIplayer;
+var MIDIplayer = null;
+var noteRectangles = [];
+var percRectangles = [];
 
-//For ease may not allow pausing. May have to play and wait for it to finish. Or just stop it
 
-//TODO: Allow pausing and replaying
+//TODO: Allow stopping
  function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {	 
 	 	if (player == null){
 			MIDI.loadPlugin({
@@ -27,7 +28,18 @@ var MIDIplayer;
 		} 
 		else {
 			if (player.playing){
+				for (var i = 0; i < noteRectangles.length; i++){
+					clearTimeout(noteRectangles[i]);	
+				}
+				for (var i = 0; i < percRectangles.length; i++){
+					clearTimeout(percRectangles[i]);	
+				}
+				highlightedPlayRect.remove();
+				highlightedPlayRect = null;	
 				
+				player.playing = false;
+				player.pause();
+				player.currentTime = 0;
 			}
 			else{
 				playing(notes,percNotes,canvas,notesDelay,percNotesDelay);
@@ -47,7 +59,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 			MIDIplayer.noteOff(0, notes[i].midinote, currentDelay + barBeat * notes[i].getDuration());
 			
 			var note = notes[i];
-			setTimeout(setBlueHighlight,currentDelay * 1000, note);
+			noteRectangles.push(setTimeout(setBlueHighlight,currentDelay * 1000, note));
 			
 			currentDelay = currentDelay + barBeat * notes[i].getDuration();
 			
@@ -72,7 +84,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 			MIDIplayer.noteOff(1, percNotes[i].midinote, currentPercDelay + barBeat * percNotes[i].getDuration());
 			
 			var note = percNotes[i];
-			setTimeout(setBluePercHighlight,currentPercDelay * 1000, note);
+			percRectangles.push(setTimeout(setBluePercHighlight,currentPercDelay * 1000, note));
 			
 			currentPercDelay = currentPercDelay + barBeat * percNotes[i].getDuration();
 			
@@ -111,9 +123,34 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 			player.playing = false;
 			$("audio").remove();
 		}, latestDelay * 1000);
-			
+				
+}
+
+function play(note){
+	var velocity = 127; // how hard the note hits
+	if (player == null){
+			MIDI.loadPlugin({
+			soundfontUrl: "./soundfont/",
+			instruments: [ "acoustic_grand_piano", "synth_drum" ],
+			callback: function() {
+			if (player == null){
+				player = MIDI.Player;
+			}
+			MIDI.programChange(0, 0);
+			MIDI.programChange(1, 118);
+			MIDIplayer = MIDI;
+			MIDIplayer.noteOn(0, note.midinote, velocity, 0);
+			MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+		}
+			});
+	} 
+	else{
+		MIDIplayer.noteOn(0, note.midinote, velocity, 0);
+		MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+	}
 		
 	
-		
+
+	
 }
 

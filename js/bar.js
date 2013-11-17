@@ -1,5 +1,4 @@
-//TODO: Formatter basedupon type of note
-//TODO: Fix formatting of some beams
+
 
 Bar = (function() {
   function Bar(x,y,width) {

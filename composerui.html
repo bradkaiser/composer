@@ -93,6 +93,9 @@
     <div id="play-control">
         <i class="fa fa-play fa-2x"></i>
     </div>
+    <div id="info">
+    	<i class="fa fa-info-circle fa-3x"></i>
+    </div>	
     <div id="subsidiaryDiv">
     </div>
 </div>
@@ -137,7 +140,7 @@ $(document).ready(function(e){
   $("#subsidiaryDiv").dblclick(function(e){
       var posX = $(this).position().left,
         posY = $(this).position().top;
-        highlightNote(e.pageX - posX,e.pageY - posY); 	
+        highlightAndPlayNote(e.pageX - posX,e.pageY - posY); 	
   });
 });
 	

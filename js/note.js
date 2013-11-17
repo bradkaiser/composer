@@ -85,6 +85,9 @@ Note = (function() {
     },
 	
 	setPercussion: function() {
+		this.originalKey = "b";
+		this.originalOctave = "4";
+		this.key = this.originalKey + "/" + this.originalOctave;
     	this.midinote = this.keyToNote("d","3");
     },
 	
@@ -131,7 +134,9 @@ Note = (function() {
 		for (var i = 0; i < this.playableNotes.length;i++){
 			if (this.originalKey == this.playableNotes[i]){
 				if (this.playableNotes[i] == "b"){
-					this.setKey("c", (this.originalOctave + 1));
+					var oct = parseInt(this.originalOctave);
+					oct ++;
+					this.setKey("c", oct + "");
 					return;
 				}
 				else{
@@ -140,6 +145,7 @@ Note = (function() {
 				}
 			}
 		}
+		play(this);
 	},
 	
 	downTone:  function(){
@@ -149,7 +155,9 @@ Note = (function() {
 		for (var i = 0; i < this.playableNotes.length;i++){
 			if (this.originalKey == this.playableNotes[i]){
 				if (this.playableNotes[i] == "c"){
-					this.setKey("b", (this.originalOctave -1));
+					var oct = parseInt(this.originalOctave);
+					oct --;
+					this.setKey("b", oct + "");
 					return;
 				}
 				else{

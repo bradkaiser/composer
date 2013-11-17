@@ -19,12 +19,12 @@ html {
 
 #mainDiv {
     margin: auto;
-    width: 1127px;
+    width: 1150px;
     height: 1000px;
 }
 
 #subsidiaryDiv {
-    float:left;;
+    float:left;
     width: 1075px;
     height: 1000px;
 }
@@ -65,20 +65,41 @@ html {
 }
 
 #play-control {
-    color: #00BEE8;
+    color:#33F;
     cursor: pointer;
     float:left;
     width:28px;
-    margin-top: 40px;
+    margin-top: 20px;
+}
+
+#play-:hover i {
+    color: #00BEE8;
+}
+
+#info {
+    color:#33F;
+    cursor: pointer;
+    float:right;
+    width:28px;
+    margin-top: 20px;
+}
+
+#info:hover i {
+    color: #00BEE8;
 }
 
 
 /* other stuff */ 
 
 
-rect, path {
+path {
     fill: #212008;
     stroke: #212008;
+}
+
+rect {
+    stroke: #212008;
+	
 }
 
 #canvas{
