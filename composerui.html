@@ -126,11 +126,10 @@ recordButton.addEventListener('rawAudio', function(e) {
     });
 
 window.addEventListener('noteEvent', function(e) {
-    //console.log(e.detail) 
-    e.detail.forEach( function(noteDetail) {
+        var noteDetail = e.detail;
+        console.log(noteDetail);
         var note = new Note(noteDetail.note, noteDetail.octave, noteDetail.duration, noteDetail.durationmodifier );
         addNote(note);
-    });
 });
 
 
