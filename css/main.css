@@ -13,6 +13,10 @@ html {
     color: #212008;
 }
 
+.note-detected {
+    background: #FF4F46;
+}
+
 #mainDiv {
     margin: auto;
     width: 1127px;

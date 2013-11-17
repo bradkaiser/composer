@@ -44,10 +44,12 @@ html {
     </div> 
     <div id="dywapitch" class="graph-holder">
         <h2>Dywapitch</h2>
-        <div id="pitch"> </div>
+        <h3>Pitch: <span id="pitch-span"></span></h3>
+        <h3>Confidence: <span id="confidence-span"></span></h3>
+
     </div>
     <div id="highpass" class="graph-holder">
-        <h2>High Pass</h2>
+        <h2>Beat Detection</h2>
     </div>
 
 </body>
@@ -86,6 +88,7 @@ BarGraph.prototype.update = function(data) {
 
     bars.exit().remove();
 }
+
 
 
 var analyzerBarGraph = new BarGraph('#analyzer',255);
@@ -136,7 +139,7 @@ function success(e) {
 
     var filter = context.createBiquadFilter();
     filter.type = 1; //HIGHPASS
-    filter.frequency.value = 8000;
+    filter.frequency.value = 5000;
 
     percussionRecorder = context.createJavaScriptNode(bufferSize,2,2);
 
@@ -145,6 +148,8 @@ function success(e) {
     Module._dywapitch_inittracking(trackerPtr);
     var computePitch = Module.cwrap('dywapitch_computepitch', 'number', ['number','number','number', 'number']);
 
+    var pitchSpan = document.getElementById('pitch-span');
+    var confidenceSpan = document.getElementById('confidence-span');
 
     recorder.onaudioprocess = function(stream) {
         var array = new Uint8Array(analyser.frequencyBinCount);
@@ -173,13 +178,32 @@ function success(e) {
         var result = computePitch(trackerPtr, rawPtr, 0, raw64.length);
         var prevPitch = Module.getValue(trackerPtr, 'double');
         var confidence = Module.getValue(trackerPtr + 8, 'i8');
-        console.log(result + " " + confidence + " " + prevPitch);
+        //console.log(result + " " + confidence + " " + prevPitch);
+        pitchSpan.innerHTML = prevPitch;
+        confidenceSpan.innerHTML = confidence;
         Module._free(rawPtr);
     };
 
     percussionRecorder.onaudioprocess = function(stream) {
         var raw = stream.inputBuffer.getChannelData(0);
         highpassGraph.update(raw);
+
+        //flash on percussion note detected
+        var cutoff = .2;
+        var found = false;
+        for (var i = 0; i< raw.length; i++) {
+            if (Math.abs(raw[i]) > cutoff) {
+                found = true;
+                break;
+            }
+        }
+
+        var el = document.getElementById('highpass');
+        if (found) {
+            el.classList.add('note-detected');
+        } else {
+            el.classList.remove('note-detected');
+        }
     }
 
     audioInput.connect(volume);
