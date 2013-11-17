@@ -146,7 +146,9 @@ var ComposerAudio = (function(ComposerAudio, Module) {
         }
 
         //public methods
-        this.process = function(pcm) { 
+        this.process = function(rawData) { 
+            var pcm = rawData.data;
+            var time = rawData.time;
             //var maxVol = max(pcm);
             var result = rawToPitch(pcm);
 

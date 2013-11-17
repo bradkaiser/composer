@@ -105,7 +105,7 @@ var recordButton = $('#record-button').get(0); //non jquery version
 var $playPauseButton = $('#play-control');
 
 
-var bufferSize = 2048;
+var bufferSize = 1024;
 var bpm = 120;
 var microphone = new ComposerAudio.Microphone(recordButton,bufferSize);
 var noteDetector = new ComposerAudio.NoteDetector(bufferSize, bpm);
@@ -126,7 +126,7 @@ recordButton.addEventListener('rawAudio', function(e) {
     });
 
 window.addEventListener('noteEvent', function(e) {
-    console.log(e.detail) 
+    //console.log(e.detail) 
     e.detail.forEach( function(noteDetail) {
         var note = new Note(noteDetail.note, noteDetail.octave, noteDetail.duration, noteDetail.durationmodifier );
         addNote(note);

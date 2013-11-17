@@ -29,9 +29,10 @@ var ComposerAudio = (function(ComposerAudio ) {
             that.recorder.connect(that.context.destination);
 
             that.recorder.onaudioprocess = function(stream) {
+                var time = new Date().getTime();
                 var raw = stream.inputBuffer.getChannelData(0);
                 var raw64 = new Float64Array(raw);
-                var rawEvent = new CustomEvent('rawAudio', {'detail': raw64});
+                var rawEvent = new CustomEvent('rawAudio', {'detail': {data: raw64, time: time}});
                 that.el.dispatchEvent(rawEvent);
             }
         }
