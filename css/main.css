@@ -27,13 +27,14 @@ html {
 
 /* record button */
 #record-button{
-    width: 100px;
-    height: 100px;
+    width: 75px;
+    height: 75px;
     margin: auto;
     position: relative;
     cursor: pointer;
     color: #FF4F46; 
     transition: all .2s ease-in-out;
+    margin-top: 50px;
 }
 
 #record-button i {
@@ -64,6 +65,7 @@ html {
     cursor: pointer;
     float:left;
     width:28px;
+    margin-top: 40px;
 }
 
 
@@ -83,6 +85,20 @@ rect, path {
     display: block;
     width: 820px;
 	height:900px;
+}
+
+@-webkit-keyframes bounce {
+    0% { -webkit-transform: translate(0px,10px); }
+    33% { -webkit-transform: translate(0px,-5px); }
+    66% { -webkit-transform: translate(0px, 3px); }
+    100% { -webkit-transform: translate(0px,0px); }
+}
+
+
+
+
+.latest-note {
+    -webkit-animation: bounce .1s ease-in-out;
 }
 
 

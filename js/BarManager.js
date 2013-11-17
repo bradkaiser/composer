@@ -147,8 +147,10 @@ function addNote(note, percussion){
 		highlightedNote = null;
 	}
 	
+    var noteIdClass = "note-" + noteId;
+
 	if (!percussion){
-        note.classes = "note-" + noteId;
+        note.classes = noteIdClass + " latest-note" ;
         noteId++;
 		allNotes.push(note);
 	}
@@ -159,6 +161,7 @@ function addNote(note, percussion){
 	}
 	
 	createStaves(allNotes, allPercNotes);
+    allNotes[allNotes.length - 1].classes = noteIdClass;
 
 }
 
