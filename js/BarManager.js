@@ -1,5 +1,5 @@
 //TODO: Export to MusicXML
-//TODO: add tutorial page
+//TODO: Make a third stave for bass maybe?
 $(document).ready(function(e){
   $(document).keydown(function(e){
 		  if (e.keyCode == 8 || e.keyCode == 38 || e.keyCode == 40 || e.keyCode == 37|| e.keyCode == 39 || e.keyCode == 13){
@@ -19,7 +19,7 @@ $(document).ready(function(e){
 		  
 		  if (e.keyCode == 13){
 			  	$playStopButton.find('i').toggleClass('fa fa-play fa-2x').toggleClass('fa fa-stop fa-2x');
-				playPause();  
+				playStop();  
 
 		  }
 		  
@@ -106,6 +106,7 @@ var canvasHeight = 1000;
 var sheetWidth = 1050;
 var staveDifference = 200;
 var percussionDifference = 80;
+var percussionStaveDifference = 150;
 
 var currentBar = null;
 var currentPercBar = null;
@@ -277,7 +278,7 @@ function full(bar, note){
 
 //Checks for highlighted note and plays from there, sending the list of notes to the Music Manager to play
 //Slightly convoluted math that was done to get the right indexes. But it works 
-function playPause(){
+function playStop(){
 	if (allNotes.length <= 0 && allPercNotes.length <= 0){
 		return;
 	}
@@ -466,7 +467,7 @@ function highlightAndPlayNote(x,y){
 				found = true;
 				highlightedNote = percBars[i].notes[j];
 				percBars[i].notes[j].setHighlighted(true);
-				play(highlightedNote);
+				play(highlightedNote, true);
 				return;
 			}
 			
@@ -474,21 +475,7 @@ function highlightAndPlayNote(x,y){
 	}
 }
 
-function moveNote(){
-	if (highlightedNote != null){
-		for (var i = 0; i < bars.length; i++){
-			for (var j = 0; j < bars[i].notes.length;j++){	
-				if (highlightedNote == bars[i].notes[j]){
-					var temp = bars[i].notes[j];
-					bars[i].notes[j] = bars[i].notes[j+1];
-					bars[i].notes[j+1] = temp;
-					redraw();
-					break;
-				}
-			}
-		}
-	}
-}
+
 
 function redraw(){
 	canvas.clear();

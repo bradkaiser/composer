@@ -7,7 +7,8 @@ var currentPercDelay = 0;
 var MIDIplayer = null;
 var noteRectangles = [];
 var percRectangles = [];
-var finalTimeout
+var finalTimeout;
+var audioNodes = [];
 
 
 //TODO: Allow stopping
@@ -23,7 +24,7 @@ var finalTimeout
 			MIDI.programChange(0, 0);
 			MIDI.programChange(1, 118);
 			MIDIplayer = MIDI;
-			playing(notes,percNotes,canvas,notesDelay,percNotesDelay);	
+			playing(notes,percNotes,canvas,notesDelay,percNotesDelay);
 		}
 			});
 		} 
@@ -45,9 +46,11 @@ var finalTimeout
 					clearTimeout(percRectangles[i]);	
 				}
 				clearTimeout(finalTimeout);	
+				for (var i = 0; i < audioNodes.length; i++){
+					audioNodes[i].noteOff(0);
+				}
 				
 				player.playing = false;
-				MIDIplayer.AudioTag.stopAllNotes();
 				$playStopButton.find('i').removeClass('fa fa-stop fa-2x').addClass('fa fa-play fa-2x');
 
 			}
@@ -59,13 +62,15 @@ var finalTimeout
 }
 
 function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
+		audioNodes.length = 0;
 		player.playing = true;	
 		currentDelay = 0 + notesDelay/2;
 		currentPercDelay = 0 + percNotesDelay/2;
 		var velocity = 127; // how hard the note hits
 		for (var i = 0; i < notes.length; i ++) {
 			// play the note
-			MIDIplayer.noteOn(0, notes[i].midinote, velocity, currentDelay);
+			
+			audioNodes.push(MIDIplayer.noteOn(0, notes[i].midinote, velocity, currentDelay));
 			MIDIplayer.noteOff(0, notes[i].midinote, currentDelay + barBeat * notes[i].getDuration());
 			
 			var note = notes[i];
@@ -90,7 +95,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 		
 		for (var i = 0; i < percNotes.length; i++){
 			// play the note
-			MIDIplayer.noteOn(1, percNotes[i].midinote, velocity/3, currentPercDelay);
+			audioNodes.push(MIDIplayer.noteOn(1, percNotes[i].midinote, velocity/3, currentPercDelay));
 			MIDIplayer.noteOff(1, percNotes[i].midinote, currentPercDelay + barBeat * percNotes[i].getDuration());
 			
 			var note = percNotes[i];
@@ -137,7 +142,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 				
 }
 
-function play(note){
+function play(note, percussion){
 	var velocity = 127; // how hard the note hits
 	if (player == null){
 			MIDI.loadPlugin({
@@ -150,14 +155,53 @@ function play(note){
 			MIDI.programChange(0, 0);
 			MIDI.programChange(1, 118);
 			MIDIplayer = MIDI;
-			MIDIplayer.noteOn(0, note.midinote, velocity, 0);
-			MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+			if (!percussion){
+				audioNodes.push(MIDIplayer.noteOn(0, note.midinote, velocity, 0));
+				MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+			}
+			else{
+				audioNodes.push(MIDIplayer.noteOn(1, note.midinote, velocity/3, 0));
+				MIDIplayer.noteOff(1, note.midinote,barBeat * note.getDuration());
+			}
 		}
 			});
 	} 
 	else{
-		MIDIplayer.noteOn(0, note.midinote, velocity, 0);
-		MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+		if (player.playing){
+				if (highlightedPlayRect != null){
+					highlightedPlayRect.remove();
+					highlightedPlayRect = null;	
+				}
+				if (highlightedPlayPercRect != null){
+					highlightedPlayPercRect.remove();
+					highlightedPlayPercRect = null;	
+					
+				}
+				for (var i = 0; i < noteRectangles.length; i++){
+					clearTimeout(noteRectangles[i]);	
+				}
+				for (var i = 0; i < percRectangles.length; i++){
+					clearTimeout(percRectangles[i]);	
+				}
+				clearTimeout(finalTimeout);	
+				for (var i = 0; i < audioNodes.length; i++){
+					audioNodes[i].noteOff(0);
+				}
+				
+				$playStopButton.find('i').removeClass('fa fa-stop fa-2x').addClass('fa fa-play fa-2x');
+		}
+		
+
+		if (!percussion){
+				MIDIplayer.noteOn(0, note.midinote, velocity, 0);
+				MIDIplayer.noteOff(0, note.midinote,barBeat * note.getDuration());
+			}
+			else{
+				MIDIplayer.noteOn(1, note.midinote, velocity/3, 0);
+				MIDIplayer.noteOff(1, note.midinote,barBeat * note.getDuration());
+			}
+			
+			
 	}
 		
 	
