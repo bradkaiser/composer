@@ -11,7 +11,6 @@ var finalTimeout;
 var audioNodes = [];
 
 
-//TODO: Allow stopping
  function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {	 
 	 	if (player == null){
 			MIDI.loadPlugin({

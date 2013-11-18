@@ -1,5 +1,6 @@
 //TODO: Export to MusicXML
 //TODO: Make a third stave for bass maybe?
+//TODO: stop recording when hitting play
 $(document).ready(function(e){
   $(document).keydown(function(e){
 		  if (e.keyCode == 8 || e.keyCode == 38 || e.keyCode == 40 || e.keyCode == 37|| e.keyCode == 39 || e.keyCode == 13){
@@ -105,8 +106,8 @@ var canvasWidth = 1075;
 var canvasHeight = 1000;
 var sheetWidth = 1050;
 var staveDifference = 200;
-var percussionDifference = 80;
-var percussionStaveDifference = 150;
+var bassDifference = 60;
+var percussionDifference = bassDifference + 60;
 
 var currentBar = null;
 var currentPercBar = null;
@@ -340,17 +341,24 @@ function createBackground(ctx){
 	barBack1.addClef("treble");
 	barBack1.addTimeSignature();
 	barBack1.draw(ctx,false);
+	
+	var barBack1B = new Bar(25,barBack1.y + bassDifference,sheetWidth);
+	barBack1B.addClef("bass");
+	barBack1B.addTimeSignature();
+	barBack1B.draw(ctx, false);
 
 	var barBack1L = new Bar(25,barBack1.y + percussionDifference,sheetWidth);
 	barBack1L.addClef("percussion");
 	barBack1L.addTimeSignature();
 	barBack1L.draw(ctx, false);
 	
-	var connector = new Vex.Flow.StaveConnector(barBack1.stave, barBack1L.stave);
+
+	
+	var connector = new Vex.Flow.StaveConnector(barBack1B.stave, barBack1L.stave);
         connector.setType(Vex.Flow.StaveConnector.type.SINGLE);
         connector.setContext(ctx).draw();
 		
-	var connector2 = new Vex.Flow.StaveConnector(barBack1.stave, barBack1L.stave);
+	var connector2 = new Vex.Flow.StaveConnector(barBack1.stave, barBack1B.stave);
         connector2.setType(Vex.Flow.StaveConnector.type.BRACE);
         connector2.setContext(ctx).draw();
 	
@@ -360,16 +368,21 @@ function createBackground(ctx){
 	barBack2.addTimeSignature();
 	barBack2.draw(ctx, false);
 	
+	var barBack2B = new Bar(25,barBack2.y + bassDifference,sheetWidth);
+	barBack2B.addClef("bass");
+	barBack2B.addTimeSignature();
+	barBack2B.draw(ctx, false);
+	
 	var barBack2L = new Bar(25, barBack2.y + percussionDifference,sheetWidth);
 	barBack2L.addClef("percussion");
 	barBack2L.addTimeSignature();
 	barBack2L.draw(ctx, false);
 	
-	var connector3 = new Vex.Flow.StaveConnector(barBack2.stave, barBack2L.stave);
+	var connector3 = new Vex.Flow.StaveConnector(barBack2B.stave, barBack2L.stave);
         connector3.setType(Vex.Flow.StaveConnector.type.SINGLE);
         connector3.setContext(ctx).draw();
 		
-	var connector4 = new Vex.Flow.StaveConnector(barBack2.stave, barBack2L.stave);
+	var connector4 = new Vex.Flow.StaveConnector(barBack2.stave, barBack2B.stave);
         connector4.setType(Vex.Flow.StaveConnector.type.BRACE);
         connector4.setContext(ctx).draw();
 	
@@ -379,16 +392,21 @@ function createBackground(ctx){
 	barBack3.addTimeSignature();
 	barBack3.draw(ctx, false);
 	
+	var barBack3B = new Bar(25,barBack3.y + bassDifference,sheetWidth);
+	barBack3B.addClef("bass");
+	barBack3B.addTimeSignature();
+	barBack3B.draw(ctx, false);
+	
 	var barBack3L = new Bar(25, barBack3.y + percussionDifference,sheetWidth);
 	barBack3L.addClef("percussion");
 	barBack3L.addTimeSignature();
 	barBack3L.draw(ctx, false);
 	
-	var connector5 = new Vex.Flow.StaveConnector(barBack3.stave, barBack3L.stave);
+	var connector5 = new Vex.Flow.StaveConnector(barBack3B.stave, barBack3L.stave);
         connector5.setType(Vex.Flow.StaveConnector.type.SINGLE);
         connector5.setContext(ctx).draw();
 		
-	var connector6 = new Vex.Flow.StaveConnector(barBack3.stave, barBack3L.stave);
+	var connector6 = new Vex.Flow.StaveConnector(barBack3.stave, barBack3B.stave);
         connector6.setType(Vex.Flow.StaveConnector.type.BRACE);
         connector6.setContext(ctx).draw();	
 		
@@ -399,27 +417,37 @@ function createBackground(ctx){
 	barBack4.setEndBarType(Vex.Flow.Barline.type.END);
 	barBack4.draw(ctx, false);
 	
+	var barBack4B = new Bar(25,barBack4.y + bassDifference,sheetWidth);
+	barBack4B.addClef("bass");
+	barBack4B.addTimeSignature();
+	barBack4B.setEndBarType(Vex.Flow.Barline.type.END);
+	barBack4B.draw(ctx, false);
+	
 	var barBack4L = new Bar(25, barBack4.y + percussionDifference,sheetWidth);
 	barBack4L.addClef("percussion");
 	barBack4L.addTimeSignature();
 	barBack4L.setEndBarType(Vex.Flow.Barline.type.END);
 	barBack4L.draw(ctx, false);
 	
-	var connector7 = new Vex.Flow.StaveConnector(barBack4.stave, barBack4L.stave);
+	var connector7 = new Vex.Flow.StaveConnector(barBack4B.stave, barBack4L.stave);
         connector7.setType(Vex.Flow.StaveConnector.type.SINGLE);
         connector7.setContext(ctx).draw();
 		
-	var connector8 = new Vex.Flow.StaveConnector(barBack4.stave, barBack4L.stave);
+	var connector8 = new Vex.Flow.StaveConnector(barBack4.stave, barBack4B.stave);
         connector8.setType(Vex.Flow.StaveConnector.type.BRACE);
         connector8.setContext(ctx).draw();	
 
 	backgroundStaves.push(barBack1);
 	backgroundStaves.push(barBack1L);
+	backgroundStaves.push(barBack1B);
 	backgroundStaves.push(barBack2);
+	backgroundStaves.push(barBack2B);
 	backgroundStaves.push(barBack2L);
 	backgroundStaves.push(barBack3);
+	backgroundStaves.push(barBack3B);
 	backgroundStaves.push(barBack3L);
 	backgroundStaves.push(barBack4);
+	backgroundStaves.push(barBack4B);
 	backgroundStaves.push(barBack4L);
 	
 	connectors.push(connector);
@@ -491,6 +519,7 @@ function redraw(){
 	for (var i = 0; i < bars.length;i++){
 		bars[i].draw(ctx,true);	
 	}
+	
 	
 	if (highlightedNote != null){
 		var bb = highlightedNote.getBoundingBox();
