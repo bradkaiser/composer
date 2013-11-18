@@ -25,6 +25,7 @@ $(document).ready(function(e){
 			if (highlightedNote != null){
 				if (!highlightedPercNote){
 					highlightedNote.upTone();
+					play(highlightedNote);
 					createStaves(allNotes,allPercNotes);
 				}
 			}
@@ -34,6 +35,7 @@ $(document).ready(function(e){
 			if (highlightedNote != null){
 				if (!highlightedPercNote){
 					highlightedNote.downTone();
+					play(highlightedNote);
 					createStaves(allNotes,allPercNotes);
 				}
 			}

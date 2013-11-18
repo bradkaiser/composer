@@ -7,6 +7,7 @@ var currentPercDelay = 0;
 var MIDIplayer = null;
 var noteRectangles = [];
 var percRectangles = [];
+var finalTimeout
 
 
 //TODO: Allow stopping
@@ -14,13 +15,13 @@ var percRectangles = [];
 	 	if (player == null){
 			MIDI.loadPlugin({
 			soundfontUrl: "./soundfont/",
-			instruments: [ "acoustic_grand_piano", "synth_drum" ],
+			instruments: [ "acoustic_grand_piano"],//, "synth_drum" ],
 			callback: function() {
 			if (player == null){
 				player = MIDI.Player;
 			}
 			MIDI.programChange(0, 0);
-			MIDI.programChange(1, 118);
+			//MIDI.programChange(1, 118);
 			MIDIplayer = MIDI;
 			playing(notes,percNotes,canvas,notesDelay,percNotesDelay);	
 		}
@@ -34,12 +35,14 @@ var percRectangles = [];
 				for (var i = 0; i < percRectangles.length; i++){
 					clearTimeout(percRectangles[i]);	
 				}
+				clearTimeout(finalTimeout);
 				highlightedPlayRect.remove();
 				highlightedPlayRect = null;	
 				
 				player.playing = false;
-				player.pause();
-				player.currentTime = 0;
+				MIDIplayer.AudioTag.stopAllNotes();
+				$playStopButton.find('i').removeClass('fa fa-stop fa-2x').addClass('fa fa-play fa-2x');
+
 			}
 			else{
 				playing(notes,percNotes,canvas,notesDelay,percNotesDelay);
@@ -119,9 +122,10 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 		if (currentDelay > currentPercDelay){
 			latestDelay = currentDelay;
 		}
-		setTimeout(function(){
+		finalTimeout = setTimeout(function(){
 			player.playing = false;
 			$("audio").remove();
+			$playStopButton.find('i').removeClass('fa fa-stop fa-2x').addClass('fa fa-play fa-2x');
 		}, latestDelay * 1000);
 				
 }

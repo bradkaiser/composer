@@ -112,7 +112,20 @@
             and beats and render them onto one sheet for and allow for easy editing and playback to tune the song to your needs. A brief tutorial will help
             you get started in using this awesome application:</p>
             <h2><strong>Recording</strong></h2>
-            <p>
+            <p>Press the <span style="color:#FF4F46">record </span> button to start recording. The percussion and notes can be recorded at the same time. To <span style="color:#FF4F46">record </span> a note hum or whistle your note,
+            with a slight pause in between each note for optimal recording. To <span style="color:#FF4F46">record </span> the percussion, tap against a table or something nearby as you would on a drum.
+            The rhythm and melody will be recorded simultaneously, although you can alternate between them to make it a bit easier. When you are done recording,
+            press the record button again. You can always resume recording anytime. </p>
+            <h2><strong>Playback</strong></h2>
+            <p>To playback the full composition, press the <span style="color:#33F">play</span> button on the left side of the screen. You can stop the playback at anytime by pressing this button
+            again. To <span style="color:#33F">play</span> a specific note, double tap that note and it will be highlighted in a red box. Pressing the <span style="color:#33F">play</span> button now will play the composition starting
+            from that note. You can highlight either notes on the treble or percussion clefs and playback will be calculated from that note. At any time, you can also
+            press the Enter button to begin playback.</p>
+            <h2><strong>Editing</strong></h2>
+            <p>You can also edit notes by using the arrow keys and mouse. Highlight a note by first double clicking the note as outlined above. To change the tone
+            a half step up, press the up arrow, and to change it a half step down, press the down arrow. To swap notes left and right, use the left and right arrows to
+            move the note along the stave. To delete a note, press the backspace key after having highlighted the note.</p>
+            <br /><br /> 
         </div> <!--your content end-->
 
     </div> <!--toPopup end-->
@@ -125,7 +138,7 @@
 var $recordButton = $('#record-button');
 var recordButton = $('#record-button').get(0); //non jquery version
 
-var $playPauseButton = $('#play-control');
+var $playStopButton = $('#play-control');
 
 
 var bufferSize = 1024;
@@ -140,10 +153,11 @@ $recordButton.on('click', function(e) {
         $recordButton.find('i').toggleClass('fa-microphone').toggleClass('fa-microphone-slash');
 });
 
-$playPauseButton.on('click', function(e) {
-    playPause();
-	$recordButton.find('i').toggleClass('fa-microphone');
-	
+$playStopButton.on('click', function(e) {
+	if (allNotes.length > 0 || allPercNotes.length > 0){
+		$playStopButton.find('i').toggleClass('fa fa-play fa-2x').toggleClass('fa fa-stop fa-2x');
+    	playPause();	
+	}
 });
         
 recordButton.addEventListener('rawAudio', function(e) { 

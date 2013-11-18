@@ -145,7 +145,6 @@ Note = (function() {
 				}
 			}
 		}
-		play(this);
 	},
 	
 	downTone:  function(){
