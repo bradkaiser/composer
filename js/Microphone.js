@@ -24,15 +24,32 @@ var ComposerAudio = (function(ComposerAudio ) {
             that.audioInput = that.context.createMediaStreamSource(e);
             that.recorder = that.context.createJavaScriptNode(that.bufferSize,2,2);
 
+            that.filter = that.context.createBiquadFilter();
+            that.filter.type = 1; // HIGHPASS
+            that.filter.frequency.value = 5000; //determined experimentally
+            that.percussionRecorder = that.context.createJavaScriptNode(bufferSize,2,2);
+
             that.audioInput.connect(that.volume);
             that.volume.connect(that.recorder);
             that.recorder.connect(that.context.destination);
+
+            that.volume.connect(that.filter);
+            that.filter.connect(that.percussionRecorder);
+            that.percussionRecorder.connect(that.context.destination);
 
             that.recorder.onaudioprocess = function(stream) {
                 var time = new Date().getTime();
                 var raw = stream.inputBuffer.getChannelData(0);
                 var raw64 = new Float64Array(raw);
                 var rawEvent = new CustomEvent('rawAudio', {'detail': {data: raw64, time: time}});
+                that.el.dispatchEvent(rawEvent);
+            }
+
+            that.percussionRecorder.onaudioprocess = function(stream) {
+                var time = new Date().getTime();
+                var raw = stream.inputBuffer.getChannelData(0);
+                var raw64 = new Float64Array(raw);
+                var rawEvent = new CustomEvent('highpassedAudio', {'detail': {data: raw64, time: time}});
                 that.el.dispatchEvent(rawEvent);
             }
         }
@@ -59,6 +76,9 @@ var ComposerAudio = (function(ComposerAudio ) {
 
         this.stop = function() {
             if (that.context) {
+                that.percussionRecorder.disconnect
+                that.filter.disconnect();
+
                 that.recorder.disconnect();
                 that.volume.disconnect();
                 that.audioInput.disconnect();
@@ -67,6 +87,8 @@ var ComposerAudio = (function(ComposerAudio ) {
                 that.volume = null;
                 that.audioInput = null;
                 that.context = null;
+                that.filter = null;
+                that.percussionRecorder = null;
             } else {
                 console.log('Not started');
             }

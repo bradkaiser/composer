@@ -271,6 +271,61 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             this.chunkNotes(keyNumObj);
 
         };
+
+        var passesCutoff = function(cutoff, xs) { 
+            for (var i = 0; i < xs.length; i++) {
+                if(xs[i] > cutoff) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        this.publishBeats = function(beats) { 
+            beats.forEach(function (beat) {
+                var percEvent = new CustomEvent('percussionEvent', {detail: beat});
+                window.dispatchEvent(percEvent);
+            });
+        };
+
+        this.percussionSeparator = function(accumulator) {
+            var workingArray = accumulator.slice();
+            accumulator.splice(0);
+
+            //copy dectected beats at end back into accumulator
+            for (var i = workingArray.length - 1; i >= 0; i--) {
+                if (workingArray[i].detected) {
+                    accumulator.unshift(workingArray[i]);
+                } else {
+                    break;
+                }
+            }
+
+            var beatGroups = workingArray.splitOn(function(x) { return !x.detected });
+
+            var beats = beatGroups.map(function(x) { return x[0] });
+            
+            that.publishBeats(beats);
+        };
+
+
+        this.chunkPercussion = this.generateAccumulator(10, this.percussionSeparator);
+
+        this.percussionProcess = function(rawData) {
+            var pcm = rawData.data;
+            var time = rawData.time;
+
+            var beat = {time: time}
+            var cutoff = .2; //determined empirically
+            if (passesCutoff(cutoff, pcm)) {
+                beat.detected = true;
+            } else {
+                beat.detected = false;
+            }
+
+            this.chunkPercussion(beat);
+        };
     }
 
     ComposerAudio.NoteDetector = NoteDetector;

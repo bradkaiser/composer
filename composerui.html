@@ -127,13 +127,21 @@ $playPauseButton.on('click', function(e) {
         
 recordButton.addEventListener('rawAudio', function(e) { 
         noteDetector.process(e.detail) ;
-    });
+});
+
+recordButton.addEventListener('highpassedAudio', function(e) {
+        noteDetector.percussionProcess(e.detail);
+});
 
 window.addEventListener('noteEvent', function(e) {
         var noteDetail = e.detail;
-        console.log(noteDetail);
+        //console.log(noteDetail);
         var note = new Note(noteDetail.note, noteDetail.octave, noteDetail.duration, noteDetail.durationmodifier );
         addNote(note);
+});
+
+window.addEventListener('percussionEvent', function(e) {
+        addNote(new Note('a',4,4,""), true);
 });
 
 
