@@ -15,13 +15,13 @@ var finalTimeout
 	 	if (player == null){
 			MIDI.loadPlugin({
 			soundfontUrl: "./soundfont/",
-			instruments: [ "acoustic_grand_piano"],//, "synth_drum" ],
+			instruments: [ "acoustic_grand_piano", "synth_drum" ],
 			callback: function() {
 			if (player == null){
 				player = MIDI.Player;
 			}
 			MIDI.programChange(0, 0);
-			//MIDI.programChange(1, 118);
+			MIDI.programChange(1, 118);
 			MIDIplayer = MIDI;
 			playing(notes,percNotes,canvas,notesDelay,percNotesDelay);	
 		}
@@ -29,15 +29,22 @@ var finalTimeout
 		} 
 		else {
 			if (player.playing){
+				if (highlightedPlayRect != null){
+					highlightedPlayRect.remove();
+					highlightedPlayRect = null;	
+				}
+				if (highlightedPlayPercRect != null){
+					highlightedPlayPercRect.remove();
+					highlightedPlayPercRect = null;	
+					
+				}
 				for (var i = 0; i < noteRectangles.length; i++){
 					clearTimeout(noteRectangles[i]);	
 				}
 				for (var i = 0; i < percRectangles.length; i++){
 					clearTimeout(percRectangles[i]);	
 				}
-				clearTimeout(finalTimeout);
-				highlightedPlayRect.remove();
-				highlightedPlayRect = null;	
+				clearTimeout(finalTimeout);	
 				
 				player.playing = false;
 				MIDIplayer.AudioTag.stopAllNotes();

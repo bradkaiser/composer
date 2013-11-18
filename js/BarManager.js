@@ -18,7 +18,9 @@ $(document).ready(function(e){
 		  }
 		  
 		  if (e.keyCode == 13){
+			  	$playStopButton.find('i').toggleClass('fa fa-play fa-2x').toggleClass('fa fa-stop fa-2x');
 				playPause();  
+
 		  }
 		  
 		   if (e.keyCode == 38){
@@ -165,12 +167,6 @@ function addNote(note, percussion){
 }
 
 function deleteNote(note, percussion){
-	if (highlightedNote != null){
-		highlightedRect.remove();
-		highlightedRect = null;
-		highlightedNote = null;
-	}
-	
 	if (!percussion){
 		var index = allNotes.indexOf(highlightedNote);
 		allNotes.splice(index,1);
@@ -181,11 +177,15 @@ function deleteNote(note, percussion){
 	}
 	
 	createStaves(allNotes, allPercNotes);
+	
+	highlightedRect.remove();
+	highlightedRect = null;
+	highlightedNote = null;
+	
 
 }
 
 
-//Change drawing for percnotes
 function createStaves(notes, percNotes){
 	
 	bars.length = 0;
