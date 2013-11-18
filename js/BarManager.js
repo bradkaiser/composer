@@ -146,20 +146,20 @@ function addNote(note, percussion){
 	}
 	
     var noteIdClass = "note-" + noteId;
+    note.classes = noteIdClass + " latest-note" ;
+    noteId++;
 
 	if (!percussion){
-        note.classes = noteIdClass + " latest-note" ;
-        noteId++;
 		allNotes.push(note);
+        createStaves(allNotes, allPercNotes);
+        allNotes[allNotes.length - 1].classes = noteIdClass;
 	}
 	else{
 		note.setPercussion();
 		allPercNotes.push(note);
+        createStaves(allNotes, allPercNotes);
+        allPercNotes[allPercNotes.length - 1].classes = noteIdClass;
 	}
-	
-	createStaves(allNotes, allPercNotes);
-    allNotes[allNotes.length - 1].classes = noteIdClass;
-
 }
 
 function deleteNote(note, percussion){

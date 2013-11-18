@@ -237,7 +237,7 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             //copy contiguous keys at end back into accumulator
             var lastKeyNum = workingArray.last().keyNumber;
             for(var i = workingArray.length - 1; i >= 0; i--) {
-                if (isClose(workingArray[i].keyNumber, lastKeyNum)) {
+                if (workingArray[i].keyNumber != -Infinity) {
                     accumulator.unshift(workingArray.pop());
                 } else {
                     break;
