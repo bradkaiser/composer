@@ -111,6 +111,8 @@ var percussionDifference = bassDifference + 60;
 
 var currentBar = null;
 var currentPercBar = null;
+//Only for drawing stave ends
+var currentBassBars = null;
 
 var startingX = offset;
 var startingY = 30;
@@ -121,6 +123,7 @@ var backgroundStaves = [];
 var connectors = [];
 var bars = [];
 var percBars = [];
+var bassBars = [];
 var allNotes = [];
 var allPercNotes = [];
 var canvas;
@@ -128,6 +131,9 @@ var canvas;
 var highlightedNote = null;
 var highlightedRect = null;
 var highlightedPercNote = false;
+
+var atEndNote = false;
+var atEndPerc = false;
 
 var ctx;
 
@@ -156,15 +162,19 @@ function addNote(note, percussion){
     noteId++;
 
 	if (!percussion){
-		allNotes.push(note);
-        createStaves(allNotes, allPercNotes);
-        allNotes[allNotes.length - 1].classes = noteIdClass;
+		if (!atEndNote){
+			allNotes.push(note);
+			createStaves(allNotes, allPercNotes);
+			allNotes[allNotes.length - 1].classes = noteIdClass;
+		}
 	}
 	else{
-		note.setPercussion();
-		allPercNotes.push(note);
-        createStaves(allNotes, allPercNotes);
-        allPercNotes[allPercNotes.length - 1].classes = noteIdClass;
+		if (!atEndPerc){
+			note.setPercussion();
+			allPercNotes.push(note);
+			createStaves(allNotes, allPercNotes);
+			allPercNotes[allPercNotes.length - 1].classes = noteIdClass;
+		}
 	}
 }
 
@@ -172,10 +182,13 @@ function deleteNote(note, percussion){
 	if (!percussion){
 		var index = allNotes.indexOf(highlightedNote);
 		allNotes.splice(index,1);
+		atEndNote = false;
 	}
 	else{
 		var index = allPercNotes.indexOf(highlightedNote);
 		allPercNotes.splice(index,1);
+		atEndPerc = false;
+		
 	}
 	
 	createStaves(allNotes, allPercNotes);
@@ -192,6 +205,7 @@ function createStaves(notes, percNotes){
 	
 	bars.length = 0;
 	percBars.length = 0;
+	bassBars.length = 0;
 		
 	nextX = startingX;
 	nextY = startingY;
@@ -201,23 +215,38 @@ function createStaves(notes, percNotes){
 	//re-add all musical notes
 	currentBar = new Bar(nextX, nextY, barwidth);
 	currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
-	nextX = currentBar.x + currentBar.width;
 	bars.push(currentBar);
+	
+	currentBassBar = new Bar(nextX, nextY + bassDifference, barwidth);
+	currentBassBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+	bassBars.push(currentBassBar);
+	
+	nextX = currentBar.x + currentBar.width;
 	currentBar.barIndex = bars.length - 1;
+	currentBassBar.barIndex = bassBars.length-1;
 	
 	for (var i = 0; i < notes.length; i++){
 		if (currentBar.getPercentFull() >= 1){
+			if ((nextX > canvasWidth - 100) && (nextY >600)){
+				atEndNote = true;
+				break;
+			}
 			if (nextX > canvasWidth - 100){
 				nextY = nextY + staveDifference;
 				currentBar = new Bar(offset,nextY,barwidth);	
 				currentBar.setBegBarType(Vex.Flow.Barline.type.NONE);
+				currentBassBar = new Bar(offset,nextY+bassDifference,barwidth);	
+				currentBassBar.setBegBarType(Vex.Flow.Barline.type.NONE);
 				nextX = currentBar.x + currentBar.width;
 			}
 			else{
 				currentBar = new Bar(nextX,nextY,barwidth);
+				currentBassBar = new Bar(nextX, nextY+bassDifference, barwidth);
 				nextX = nextX + barwidth;
 			}
 			bars.push(currentBar);
+			bassBars.push(currentBassBar);
+			currentBassBar.barIndex = bassBars.length-1;
 			currentBar.barIndex = bars.length - 1;
 		}
 		
@@ -239,6 +268,10 @@ function createStaves(notes, percNotes){
 	
 	for (var i = 0; i < percNotes.length; i++){
 		if (currentPercBar.getPercentFull() >= 1){
+			if ((nextPercX > canvasWidth - 100) && (nextPercY > 600)){
+				atEndPerc = true;
+				break;
+			}
 			if (nextPercX > canvasWidth - 100){
 				nextPercY = nextPercY + staveDifference;
 				currentPercBar = new Bar(offset,nextPercY,barwidth);	
@@ -518,6 +551,9 @@ function redraw(){
 	}
 	for (var i = 0; i < bars.length;i++){
 		bars[i].draw(ctx,true);	
+	}
+	for (var i = 0; i < bassBars.length;i++){
+		bassBars[i].draw(ctx,true);	
 	}
 	
 	

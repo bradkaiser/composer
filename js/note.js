@@ -63,7 +63,9 @@ Note = (function() {
 
     setDuration: function(duration, wholeNote) { 
 		this.duration = duration;
-		this.durationString = (1/duration) + this.durationmodifier;
+		if (!wholeNote){
+			this.durationString = (1/duration) + this.durationmodifier;
+		}
 		if (!wholeNote){
 			if (this.duration == 0.375){
 				this.durationmodifier = "d";
@@ -77,6 +79,10 @@ Note = (function() {
 				this.durationmodifier ="d";
 				this.durationString = 16 + "d";
 			}
+		}
+		if (this.durationmodifier == "d"){
+			this.durationmodifier = "";
+			this.durationString = (1/this.duration) + this.durationmodifier;
 		}
 	},
 	
