@@ -41,6 +41,7 @@ Note = (function() {
 			this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
 		}
 		catch(err){
+			this.midinote = -1;
 			return null;	
 		}
 		if (this.durationmodifier == "d"){
