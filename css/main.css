@@ -17,6 +17,10 @@ html {
     background: #FF4F46;
 }
 
+.note {
+    cursor: pointer;
+}
+
 #mainDiv {
     margin: auto;
     width: 1150px;

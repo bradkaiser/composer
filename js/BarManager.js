@@ -156,7 +156,7 @@ function addNote(note, percussion){
 		highlightedNote = null;
 	}
 	
-    var noteIdClass = "note-" + noteId;
+    var noteIdClass = "note note-" + noteId;
     note.classes = noteIdClass + " latest-note" ;
     noteId++;
 
