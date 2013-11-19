@@ -43,13 +43,13 @@ Note = (function() {
 		catch(err){
 			return null;	
 		}
-			if (this.durationmodifier == "d"){
-				this.addDot();	
-			}
-			if (this.key.length > 3){
-				var modifier = this.key.slice(1,2);
-				this.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
-			}
+		if (this.durationmodifier == "d"){
+			this.addDot();	
+		}
+		if (this.key.length > 3){
+			var modifier = this.key.slice(1,2);
+			this.note.addAccidental(0, new Vex.Flow.Accidental(modifier));
+		}
 		
 		return this.note;
     },

@@ -68,7 +68,6 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 		var velocity = 127; // how hard the note hits
 		for (var i = 0; i < notes.length; i ++) {
 			// play the note
-			
 			audioNodes.push(MIDIplayer.noteOn(0, notes[i].midinote, velocity, currentDelay));
 			MIDIplayer.noteOff(0, notes[i].midinote, currentDelay + barBeat * notes[i].getDuration());
 			
@@ -94,6 +93,7 @@ function playing(notes, percNotes, canvas, notesDelay, percNotesDelay){
 		
 		for (var i = 0; i < percNotes.length; i++){
 			// play the note
+			
 			audioNodes.push(MIDIplayer.noteOn(1, percNotes[i].midinote, velocity/3, currentPercDelay));
 			MIDIplayer.noteOff(1, percNotes[i].midinote, currentPercDelay + barBeat * percNotes[i].getDuration());
 			

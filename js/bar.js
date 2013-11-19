@@ -29,10 +29,9 @@ Bar = (function() {
 		if (this.percentFull + note.getDuration() > 1){
 			return;	
 		}
-		this.percentFull += note.getDuration();
 		if (this.notes.length >= 1){
 			var previousNote = this.notes[this.notes.length-1];
-			if (previousNote.getDuration() <= 0.1875 && (note.getDuration() <= 0.1875)){
+			if (previousNote.getDuration() <= 0.1875 && (note.getDuration() <= 0.1875) && (previousNote.getDuration() == note.getDuration())){
 				if ((this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 1) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 2) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 3) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 0)) { 
 					var addNote = note.getVexNote();
 					if (addNote == null)
@@ -44,9 +43,6 @@ Bar = (function() {
 				}
 			}
 		}
-		
-		
-		this.notes.push(note);
 		if (beamed){
 			this.bar.addTickable(note.note);
 		}
@@ -55,10 +51,11 @@ Bar = (function() {
 			var addNote = note.getVexNote();
 			if (addNote == null)
 				return null;
-			this.bar.addTickable(addNote);	
-			return addNote;	
-			
+			this.bar.addTickable(addNote);
 		}
+		this.notes.push(note);
+		this.percentFull += note.getDuration();
+
 	},
 	
 

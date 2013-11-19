@@ -252,9 +252,7 @@ function createStaves(notes, percNotes){
 		//trim note if duration is greater than the beats left in the bar
 		notes[i] = full(currentBar, notes[i]);
 		
-		if (currentBar.addNote(notes[i]) == null){
-			console.log("null note");
-		};
+		currentBar.addNote(notes[i]);
 		notes[i].setBar(currentBar);
 	}
 		
@@ -290,30 +288,13 @@ function createStaves(notes, percNotes){
 		//trim note if duration is greater than the beats left in the bar
 		percNotes[i] = full(currentPercBar, percNotes[i]);
 		
-		if (currentPercBar.addNote(percNotes[i]) == null){
-			percsToRemove.push(i);
-
-		}
+		currentPercBar.addNote(percNotes[i]);
 		percNotes[i].setBar(currentPercBar);
 	}
-	cleanNulls();	
+	
+	
 	redraw();
 		
-}
-
-function cleanNulls(){
-	for (var i = 0; i < allNotes.length; i++){
-		if (allNotes[i].note == null){
-			allNotes.splice(i, 1);
-		}
-	}
-	
-	for (var i = 0; i < allPercNotes.length; i++){
-		if (allPercNotes[i].note == null){
-			allPercNotes.splice(i, 1);
-		}
-	}
-	
 }
 
 function full(bar, note){
