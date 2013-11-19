@@ -32,9 +32,12 @@ Bar = (function() {
 		this.percentFull += note.getDuration();
 		if (this.notes.length >= 1){
 			var previousNote = this.notes[this.notes.length-1];
-			if (previousNote.getDuration() < 0.25 && (note.getDuration() < 0.25)){
+			if (previousNote.getDuration() <= 0.1875 && (note.getDuration() <= 0.1875)){
 				if ((this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 1) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 2) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 3) && (this.getBeatIndexOfNote(previousNote) + note.getDuration()*4 != 0)) { 
-					var array = new Array(this.notes[this.notes.length-1].note,note.getVexNote());
+					var addNote = note.getVexNote();
+					if (addNote == null)
+						return null;
+					var array = new Array(this.notes[this.notes.length-1].note,addNote);
 					var beam = new Vex.Flow.Beam(array);
 					this.beams.push(beam);
 					beamed = true;
@@ -48,7 +51,13 @@ Bar = (function() {
 			this.bar.addTickable(note.note);
 		}
 		else{
-			this.bar.addTickable(note.getVexNote());			
+			//Some notes have a bad duration and return an error. If this is the case just delete the note and move on.
+			var addNote = note.getVexNote();
+			if (addNote == null)
+				return null;
+			this.bar.addTickable(addNote);	
+			return addNote;	
+			
 		}
 	},
 	

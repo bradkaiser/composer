@@ -1,5 +1,4 @@
 //TODO: Export to MusicXML
-//TODO: Make a third stave for bass maybe?
 //TODO: stop recording when hitting play
 $(document).ready(function(e){
   $(document).keydown(function(e){
@@ -253,7 +252,9 @@ function createStaves(notes, percNotes){
 		//trim note if duration is greater than the beats left in the bar
 		notes[i] = full(currentBar, notes[i]);
 		
-		currentBar.addNote(notes[i]);
+		if (currentBar.addNote(notes[i]) == null){
+			console.log("null note");
+		};
 		notes[i].setBar(currentBar);
 	}
 		
@@ -289,12 +290,30 @@ function createStaves(notes, percNotes){
 		//trim note if duration is greater than the beats left in the bar
 		percNotes[i] = full(currentPercBar, percNotes[i]);
 		
-		currentPercBar.addNote(percNotes[i]);
+		if (currentPercBar.addNote(percNotes[i]) == null){
+			percsToRemove.push(i);
+
+		}
 		percNotes[i].setBar(currentPercBar);
 	}
-	
+	cleanNulls();	
 	redraw();
 		
+}
+
+function cleanNulls(){
+	for (var i = 0; i < allNotes.length; i++){
+		if (allNotes[i].note == null){
+			allNotes.splice(i, 1);
+		}
+	}
+	
+	for (var i = 0; i < allPercNotes.length; i++){
+		if (allPercNotes[i].note == null){
+			allPercNotes.splice(i, 1);
+		}
+	}
+	
 }
 
 function full(bar, note){
@@ -549,12 +568,13 @@ function redraw(){
 	for (var i = 0; i < percBars.length;i++){
 		percBars[i].draw(ctx,true);	
 	}
-	for (var i = 0; i < bars.length;i++){
-		bars[i].draw(ctx,true);	
-	}
 	for (var i = 0; i < bassBars.length;i++){
 		bassBars[i].draw(ctx,true);	
 	}
+	for (var i = 0; i < bars.length;i++){
+		bars[i].draw(ctx,true);	
+	}
+
 	
 	
 	if (highlightedNote != null){

@@ -37,7 +37,12 @@ Note = (function() {
     },
 
     getVexNote: function(createNew) {
+		try{
 			this.note = new Vex.Flow.StaveNote({keys: [this.key], duration: this.durationString, classes: this.classes});
+		}
+		catch(err){
+			return null;	
+		}
 			if (this.durationmodifier == "d"){
 				this.addDot();	
 			}
@@ -134,7 +139,7 @@ Note = (function() {
 	},
 	
 	upTone:  function(){
-		if (this.originalKey == "d" && this.originalOctave == 6){
+		if (this.originalKey == "g" && this.originalOctave == 6){
 			return;	
 		}
 		for (var i = 0; i < this.playableNotes.length;i++){
@@ -154,7 +159,7 @@ Note = (function() {
 	},
 	
 	downTone:  function(){
-		if (this.originalKey == "a" && this.originalOctave == "3"){
+		if (this.originalKey == "c" && this.originalOctave == "2"){
 			return;	
 		}
 		for (var i = 0; i < this.playableNotes.length;i++){

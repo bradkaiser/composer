@@ -14,7 +14,7 @@ var audioNodes = [];
  function playback(notes, percNotes, canvas, notesDelay, percNotesDelay) {	 
 	 	if (player == null){
 			MIDI.loadPlugin({
-			soundfontUrl: "./soundfont/",
+			soundfontUrl: "./js/lib/soundfont/",
 			instruments: [ "acoustic_grand_piano", "synth_drum" ],
 			callback: function() {
 			if (player == null){
@@ -145,7 +145,7 @@ function play(note, percussion){
 	var velocity = 127; // how hard the note hits
 	if (player == null){
 			MIDI.loadPlugin({
-			soundfontUrl: "./soundfont/",
+			soundfontUrl: "./js/lib/soundfont/",
 			instruments: [ "acoustic_grand_piano", "synth_drum" ],
 			callback: function() {
 			if (player == null){
