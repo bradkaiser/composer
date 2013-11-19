@@ -282,35 +282,29 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             return false;
         }
 
-        this.publishBeats = function(beats) { 
-            beats.forEach(function (beat) {
-                var percEvent = new CustomEvent('percussionEvent', {detail: beat});
+        this.simplePercussionSeparator = function(accumulator) {
+            console.log(accumulator);
+            if (accumulator.length <= 1) {
+                //do nothing, not enough beats yet
+                return;
+            } 
+
+            var duration = accumulator[1].time - accumulator[0].time;
+            console.log(duration);
+
+            //if separation is less than sixteenth, drop second note as spurious
+            if (duration < that.msInSixteenth) {
+                accumulator.splice(1);
+            } else { //otherwise, use duration to get note type, and dispose of first note
+                var result = msToLargestNoteType(duration);
+                accumulator.splice(0,1);
+
+                var percEvent = new CustomEvent('percussionEvent', {detail: result});
                 window.dispatchEvent(percEvent);
-            });
-        };
-
-        this.percussionSeparator = function(accumulator) {
-            var workingArray = accumulator.slice();
-            accumulator.splice(0);
-
-            //copy dectected beats at end back into accumulator
-            for (var i = workingArray.length - 1; i >= 0; i--) {
-                if (workingArray[i].detected) {
-                    accumulator.unshift(workingArray[i]);
-                } else {
-                    break;
-                }
             }
-
-            var beatGroups = workingArray.splitOn(function(x) { return !x.detected });
-
-            var beats = beatGroups.map(function(x) { return x[0] });
-            
-            that.publishBeats(beats);
         };
 
-
-        this.chunkPercussion = this.generateAccumulator(10, this.percussionSeparator);
+        this.chunkPercussion = this.generateAccumulator(1, this.simplePercussionSeparator);
 
         this.percussionProcess = function(rawData) {
             var pcm = rawData.data;
@@ -320,11 +314,8 @@ var ComposerAudio = (function(ComposerAudio, Module) {
             var cutoff = .2; //determined empirically
             if (passesCutoff(cutoff, pcm)) {
                 beat.detected = true;
-            } else {
-                beat.detected = false;
-            }
-
-            this.chunkPercussion(beat);
+                that.chunkPercussion(beat);
+            } 
         };
     }
 

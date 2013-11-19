@@ -176,7 +176,9 @@ window.addEventListener('noteEvent', function(e) {
 });
 
 window.addEventListener('percussionEvent', function(e) {
-        addNote(new Note('a',4,4,""), true);
+        var perc = e.detail;
+        console.log(perc);
+        addNote(new Note('a',4,perc.duration,perc.durationmodifier), true);
 });
 
 
