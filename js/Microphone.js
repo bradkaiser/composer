@@ -22,12 +22,12 @@ var ComposerAudio = (function(ComposerAudio ) {
             that.context = new audioContext();
             that.volume = that.context.createGain();
             that.audioInput = that.context.createMediaStreamSource(e);
-            that.recorder = that.context.createJavaScriptNode(that.bufferSize,2,2);
+            that.recorder = that.context.createScriptProcessor(that.bufferSize,2,2);
 
             that.filter = that.context.createBiquadFilter();
             that.filter.type = 1; // HIGHPASS
             that.filter.frequency.value = 5000; //determined experimentally
-            that.percussionRecorder = that.context.createJavaScriptNode(bufferSize,2,2);
+            that.percussionRecorder = that.context.createScriptProcessor(bufferSize,2,2);
 
             that.audioInput.connect(that.volume);
             that.volume.connect(that.recorder);
