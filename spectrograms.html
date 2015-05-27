@@ -128,7 +128,7 @@ function success(e) {
     var audioInput = context.createMediaStreamSource(e);
 
     var bufferSize = 1024;
-    recorder = context.createJavaScriptNode(bufferSize,2,2);
+    recorder = context.createScriptProcessor(bufferSize,2,2);
 
     var fft = new RFFT(bufferSize, 44100);
     var cepstrumFft = new FFT(bufferSize / 2, 44100);
