@@ -141,7 +141,7 @@ function success(e) {
     filter.type = 1; //HIGHPASS
     filter.frequency.value = 5000;
 
-    percussionRecorder = context.createJavaScriptNode(bufferSize,2,2);
+    percussionRecorder = context.createScriptProcessor(bufferSize,2,2);
 
     //dywapitch stuff
     var trackerPtr = Module._malloc(12);
